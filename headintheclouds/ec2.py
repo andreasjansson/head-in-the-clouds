@@ -86,7 +86,8 @@ def create(role='idle', size='m1.small', count=1):
 
 @task
 @runs_once
-def spot(role='idle', size='m1.small', price=0.10, count=1):
+def spot(role='idle', size='m1.small', price=0.010, count=1):
+    count = int(count)
 
     image_id = _get_image_id_for_size(size)
 

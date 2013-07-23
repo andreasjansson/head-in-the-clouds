@@ -79,7 +79,7 @@ def test(puppet_dir='puppet'):
 
 @task
 @parallel
-def build(puppet_dir='puppet', init_filename='init.pp', update=True):
+def build(puppet_dir='puppet', init='init.pp', update=True):
     if str(update) == 'True':
         sudo('dpkg --configure -a')
         sudo('apt-get update')
@@ -87,16 +87,17 @@ def build(puppet_dir='puppet', init_filename='init.pp', update=True):
         sudo('apt-get -y install puppet')
         sudo('chmod 777 /opt')
 
-    nodes_yaml = yaml.safe_dump(_get_environment())
-    put(StringIO(nodes_yaml), '/etc/puppet/nodes.yaml')
-
     if not puppet_dir.endswith('/'):
         puppet_dir += '/'
     remote_puppet_dir = '/etc/puppet'
     sudo('chown -R %s %s' % (env.user, remote_puppet_dir))
+
+    nodes_yaml = yaml.safe_dump(_get_environment())
+    put(StringIO(nodes_yaml), remote_puppet_dir + '/nodes.yaml')
+    
     project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
                           ssh_opts='-o StrictHostKeyChecking=no')
-    sudo('puppet apply %s/%s' % (remote_puppet_dir, init_filename))
+    sudo('puppet apply %s/%s' % (remote_puppet_dir, init))
 
 def _get_environment():
     environment = defaultdict(list)
