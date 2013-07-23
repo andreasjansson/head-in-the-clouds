@@ -52,10 +52,16 @@ def cached(wrapped):
         recache = kwargs.get('_recache')
         if recache:
             del kwargs['_recache']
+        uncache = kwargs.get('_uncache')
+        if uncache:
+            del kwargs['_uncache']
 
         cache_key = wrapped.__module__ + '.' + wrapped.__name__
         if args or kwargs:
             cache_key += cPickle.dumps((args, kwargs))
+
+        if uncache:
+            cache().delete(cache_key)
 
         if recache:
             ret = wrapped(*args, **kwargs)
@@ -77,6 +83,14 @@ def recache(fn, *args, **kwargs):
     kwargs['_recache'] = True
     return fn(*args, **kwargs)
 
+def uncache(fn, *args, **kwargs):
+    if not hasattr(fn, '__call__'):
+        raise Exception('%s is not a function' % str(fn))
+    if not hasattr(fn, '_cached'):
+        raise Exception('Function is not decorated with @cached')
+    kwargs['_uncache'] = True
+    return fn(*args, **kwargs)
+
 class Cache():
     def __init__(self):
         self.client = pyfscache.FSCache('%s/cache' % cloudbuster_home(), days=7)
@@ -90,6 +104,11 @@ class Cache():
             self.client.update_item(key, value)
         except pyfscache.fscache.CacheError:
             self.client[key] = value
+    def delete(self, key):
+        try:
+            self.client.expire(key)
+        except Exception:
+            pass
     def flush(self):
         try:
             shutil.rmtree('%s/cache' % cloudbuster_home())

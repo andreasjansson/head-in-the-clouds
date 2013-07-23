@@ -6,5 +6,13 @@ setup(name='headintheclouds',
       author='Andreas Jansson',
       author_email='andreas@jansson.me.uk',
       licence='GNU GPLv3',
-      packages=['headintheclouds']
+      packages=['headintheclouds'],
+      requires=[
+          'fabric',
+          'pyyaml',
+          'boto',
+          'numpy',
+          'dop',
+          'pyfscache',
+      ]
   )

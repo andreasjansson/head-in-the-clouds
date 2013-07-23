@@ -1,17 +1,19 @@
 import os
 import sys
 import re
+import urllib
 import dop.client
+from collections import defaultdict
 
 from fabric.api import *
 from fabric.contrib.console import confirm
 
 import util
-from util import cached, recache
+from util import cached, recache, uncache
 
 @task
 @runs_once
-def create(size='512MB', count=1):
+def create(role='idle', size='512MB', count=1):
 
     image = 'Ubuntu 13.04 x64'
     region = 'New York 1'
@@ -27,7 +29,7 @@ def create(size='512MB', count=1):
         name = '%s%s' % (util.NAME_PREFIX, role)
         image = _do().create_droplet(name, size_id, image_id, region_id, [ssh_key_id])
 
-    recache(_get_all_nodes)
+    uncache(_get_all_nodes)
 
 @task
 @parallel
@@ -38,7 +40,7 @@ def terminate():
     droplet_id = current_node['id']
     puts('Terminating Digital Ocean droplet %s' % droplet_id)
     _do().destroy_droplet(droplet_id)
-    recache(_get_all_nodes)
+    uncache(_get_all_nodes)
 
 @task
 @runs_once
@@ -57,6 +59,23 @@ def pricing():
                 return int(x.replace(a, b))
     util.print_table([get_node_types()[s] for s in sorted(sizes, key=get_size)],
                      ['memory', 'cores', 'disk', 'transfer', 'cost'])
+
+def rename(role):
+    current_node = _host_node()
+    name = util.NAME_PREFIX + role
+    response = _do().request('/droplets/%s/rename?name=%s' % (
+        current_node['id'], urllib.quote_plus(name)))
+    if response['status'] != 'OK':
+        raise Exception('Rename failed: %s' % repr(response))
+    uncache(_get_all_nodes)
+
+def get_remote_environment():
+    nodes = _get_all_nodes()
+    environment = defaultdict(list)
+    for node in nodes:
+        environment[node['role']].append(node['ip_address'])
+    return environment
+get_local_environment = get_remote_environment
 
 def _do():
     if not hasattr(_do, 'client'):

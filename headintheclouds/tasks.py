@@ -1,8 +1,11 @@
 import sys
 from functools import wraps
 import collections
+import yaml
+from StringIO import StringIO
+from collections import defaultdict
 
-from fabric.api import parallel, env, sudo, settings, local, runs_once, run, abort
+from fabric.api import parallel, env, sudo, settings, local, runs_once, run, abort, put
 import fabric.api
 import fabric.contrib.project as project
 
@@ -33,33 +36,78 @@ def terminate():
     _provider().terminate()
 
 @task
+@parallel
+def rename(role):
+    _provider().rename(role)
+
+@task
 def uncache():
     util.cache().flush()
 
 @task
 def ssh():
-    local('ssh -o StrictHostKeyChecking=no -i "%s" root@%s' % (env.key_filename, env.host))
+    local('ssh -o StrictHostKeyChecking=no -i "%s" %s@%s' % (env.key_filename, env.user, env.host))
 
 @task
-def scp(remote_path, local_path='.'):
-    local('scp -C -i %s %s@%s:"%s" %s' % (env.key_filename, env.user, env.host, remote_path, local_path))
+def upload(from_path, to_path='.', compress=True):
+    options = []
+    if str(compress) == 'True':
+        options.append('-C')
+    options = ' '.join(options)
+    local('scp %s -i %s "%s" %s@%s:"%s"' % (options, env.key_filename, from_path, env.user, env.host, to_path))
+
+@task
+def download(from_path, to_path='.', compress=True):
+    options = []
+    if str(compress) == 'True':
+        options.append('-C')
+    options = ' '.join(options)
+    local('scp %s -i %s %s@%s:"%s" "%s"' % (options, env.key_filename, env.user, env.host, from_path, to_path))
 
 @task
 @parallel
-def build(puppet_dir='puppet', init_filename='init.pp'):
-    sudo('dpkg --configure -a')
-    sudo('apt-get update')
-    sudo('apt-get -y install puppet')
-    sudo('chmod 777 /opt')
+def test(puppet_dir='puppet'):
 
     if not puppet_dir.endswith('/'):
         puppet_dir += '/'
-    remote_puppet_dir = '/opt/puppet'
-    sudo('mkdir -p %s' % remote_puppet_dir)
+    remote_puppet_dir = '/etc/puppet'
+    sudo('chown -R %s %s' % (env.user, remote_puppet_dir))
+    project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
+                          ssh_opts='-o StrictHostKeyChecking=no')
+
+    sudo('export FACTER_blah="{a => 1, b => 2}"; puppet apply /etc/puppet/init.pp')
+
+@task
+@parallel
+def build(puppet_dir='puppet', init_filename='init.pp', update=True):
+    if str(update) == 'True':
+        sudo('dpkg --configure -a')
+        sudo('apt-get update')
+
+        sudo('apt-get -y install puppet')
+        sudo('chmod 777 /opt')
+
+    nodes_yaml = yaml.safe_dump(_get_environment())
+    put(StringIO(nodes_yaml), '/etc/puppet/nodes.yaml')
+
+    if not puppet_dir.endswith('/'):
+        puppet_dir += '/'
+    remote_puppet_dir = '/etc/puppet'
     sudo('chown -R %s %s' % (env.user, remote_puppet_dir))
     project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
                           ssh_opts='-o StrictHostKeyChecking=no')
     sudo('puppet apply %s/%s' % (remote_puppet_dir, init_filename))
+
+def _get_environment():
+    environment = defaultdict(list)
+    for p in env.providers:
+        if p == env.all_nodes[env.host]['provider']:
+            provider_env = sys.modules[p].get_local_environment()
+        else:
+            provider_env = sys.modules[p].get_remote_environment()
+        for role, nodes in provider_env.iteritems():
+            environment[role].extend(nodes)
+    return dict(environment)
 
 def _provider():
     return sys.modules[env.all_nodes[env.host]['provider']]

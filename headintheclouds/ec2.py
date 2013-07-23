@@ -12,9 +12,10 @@ import fabric.contrib.project as project
 import cPickle
 import numpy as np
 import re
+from collections import defaultdict
 
 import util
-from util import cached, recache
+from util import cached, recache, uncache
 
 @runs_once
 @task
@@ -65,20 +66,31 @@ def pricing():
     
 @task
 @runs_once
-def spot(size, price, count=1):
+def create(role='idle', size='m1.small', count=1):
+    image_id = _get_image_id_for_size(size)
 
-    ubuntu1304_ebs = 'ami-10314d79'
-    ubuntu1304_instance_store = 'ami-762d491f'
-    ubuntu1304_hvm = 'ami-08345061'
+    reservation = _ec2().run_instances(
+        image_id=image_id,
+        min_count=count,
+        max_count=count,
+        security_groups=['default'],
+        instance_type=size,
+        placement='us-east-1b',
+        key_name=KEYPAIR_NAME,
+    )
 
-    if size in ['cc2.8xlarge', 'cr1.8xlarge']:
-        image_id = ubuntu1304_hvm
-    elif size in ['t1.micro']:
-        image_id = ubuntu1304_ebs
-    else:
-        image_id = ubuntu1304_instance_store
+    for instance in reservation.instances:
+        _set_instance_name(instance.id, role)
 
-    puts('Creating spot requests')
+    puts('Created %d %s instance(s)' % (count, size))
+
+@task
+@runs_once
+def spot(role='idle', size='m1.small', price=0.10, count=1):
+
+    image_id = _get_image_id_for_size(size)
+
+    puts('Creating spot requests for %d %s instance(s) at $%.3f' % (count, size, price))
     requests = _ec2().request_spot_instances(
         price=price,
         image_id=image_id,
@@ -128,23 +140,41 @@ def spot(size, price, count=1):
 
     instance_ids = [r.instance_id for r in active_requests]
     for i, instance_id in enumerate(instance_ids):
-        _ec2().create_tags(instance_id, {'Name': '%sidle' % (util.NAME_PREFIX)})
+        _set_instance_name(instance_id, role)
 
-    recache(_get_all_nodes)
+    uncache(_get_all_nodes)
 
 @task
 @parallel
 def terminate():
-    instance_id = _host_instance()['id']
+    instance_id = _host_node()['id']
     puts('Terminating EC2 instance %s' % instance_id)
     _ec2().terminate_instances([instance_id])
-    recache(_get_all_nodes)
+    uncache(_get_all_nodes)
 
 @task
 @runs_once
 def nodes():
     nodes = recache(_get_all_nodes)
     util.print_table(nodes, ['name', 'size', 'ip_address', 'status', 'launch_time'])
+
+def rename(role):
+    current_node = _host_node()
+    _set_instance_name(current_node['id'], role)
+
+def get_local_environment():
+    nodes = _get_all_nodes()
+    environment = defaultdict(list)
+    for node in nodes:
+        environment[node['role']].append(node['private_ip_address'])
+    return environment
+
+def get_remote_environment():
+    nodes = _get_all_nodes()
+    environment = defaultdict(list)
+    for node in nodes:
+        environment[node['role']].append(node['ip_address'])
+    return environment
 
 def _ec2():
     if not hasattr(_ec2, 'client'):
@@ -172,19 +202,31 @@ def _get_all_nodes():
 
     reservations = _ec2().get_all_instances()
     nodes = [format_node(x) for r in reservations for x in r.instances
-             if x.tags['Name'].startswith(util.NAME_PREFIX)]
+             if 'Name' in x.tags and x.tags['Name'].startswith(util.NAME_PREFIX)]
     return nodes
 
-def _host_instance():
+def _host_node():
     return [x for x in _get_all_nodes() if x['ip_address'] == env.host][0]
 
 def _host_role():
-    return _host_instance()['role']
+    return _host_node()['role']
 
-def _set_instance_name(instance, name):
-    instance.tags['Name'] = util.NAME_PREFIX + name
-    _ec2().create_tags(instance.id, {'Name': 'worker-' + name})
-    recache(_get_all_nodes)
+def _set_instance_name(instance_id, name):
+    _ec2().create_tags(instance_id, {'Name': '%s%s' % (util.NAME_PREFIX, name)})
+
+def _get_image_id_for_size(size):
+    ubuntu1304_ebs = 'ami-10314d79'
+    ubuntu1304_instance_store = 'ami-762d491f'
+    ubuntu1304_hvm = 'ami-08345061'
+
+    if size in ['cc2.8xlarge', 'cr1.8xlarge']:
+        image_id = ubuntu1304_hvm
+    elif size in ['t1.micro']:
+        image_id = ubuntu1304_ebs
+    else:
+        image_id = ubuntu1304_instance_store
+
+    return image_id
 
 ACCESS_KEY_ID = util.env_var('AWS_ACCESS_KEY_ID')
 SECRET_ACCESS_KEY = util.env_var('AWS_SECRET_ACCESS_KEY')
