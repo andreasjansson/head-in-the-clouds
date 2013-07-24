@@ -68,6 +68,7 @@ def pricing():
 @runs_once
 def create(role='idle', size='m1.small', count=1):
     image_id = _get_image_id_for_size(size)
+    count = int(count)
 
     reservation = _ec2().run_instances(
         image_id=image_id,
@@ -88,6 +89,7 @@ def create(role='idle', size='m1.small', count=1):
 @runs_once
 def spot(role='idle', size='m1.small', price=0.010, count=1):
     count = int(count)
+    price = float(price)
 
     image_id = _get_image_id_for_size(size)
 

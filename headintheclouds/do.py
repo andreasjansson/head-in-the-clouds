@@ -23,8 +23,6 @@ def create(role='idle', size='512MB', count=1):
     region_id = _get_region_id(region)
     ssh_key_id = str(_get_ssh_key_id(SSH_KEY_NAME))
 
-    role = 'idle'
-
     for _ in range(int(count)):
         name = '%s%s' % (util.NAME_PREFIX, role)
         image = _do().create_droplet(name, size_id, image_id, region_id, [ssh_key_id])
