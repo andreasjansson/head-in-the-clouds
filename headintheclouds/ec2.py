@@ -10,7 +10,6 @@ import sys
 import os
 import fabric.contrib.project as project
 import cPickle
-import numpy as np
 import re
 from collections import defaultdict
 
@@ -52,9 +51,9 @@ def pricing():
         item = {}
         item['size'] = t
         item['recent'] = '%.3f' % latest_price[t]
-        item['median'] = '%.3f' % np.median(prices)
-        item['stddev'] = '%.3f' % np.std(prices)
-        item['max'] = '%.3f' % np.max(prices)
+        item['median'] = '%.3f' % util.median(prices)
+        item['stddev'] = '%.3f' % util.stddev(prices)
+        item['max'] = '%.3f' % max(prices)
         item.update(get_node_types()[t])
         item['hourly_cost'] = '%.3f' % item['linux_cost']
         table.append(item)

@@ -1,9 +1,9 @@
 import os
 import re
+import math
 import shutil
 import cPickle
 from fabric.api import *
-import pyfscache
 
 def print_table(table, columns=None):
     def is_number(x):
@@ -91,7 +91,19 @@ def uncache(fn, *args, **kwargs):
     kwargs['_uncache'] = True
     return fn(*args, **kwargs)
 
-class Cache():
+class NoneCache(object):
+    def __init__(self):
+        pass
+    def get(self, key):
+        return None
+    def set(self, key, value):
+        return None
+    def delete(self, key):
+        return None
+    def flush(self):
+        return None
+
+class FSCache(object):
     def __init__(self):
         self.client = pyfscache.FSCache('%s/cache' % cloudbuster_home(), days=7)
     def get(self, key):
@@ -115,6 +127,12 @@ class Cache():
         except OSError, e:
             if e.errno != 2:
                 raise
+
+try:
+    import pyfscache
+    Cache = FSCache
+except ImportError:
+    Cache = NoneCache
 
 def cache():
     if not hasattr(cache, 'client'):
@@ -142,5 +160,18 @@ def env_var(var):
     if not value:
         raise Exception('Missing required environment variable: %s' % var)
     return value
+
+def average(x):
+    return sum(x) * 1.0 / len(x)
+
+def variance(x):
+    avg = average(x)
+    return [(s - avg) ** 2 for s in x]
+
+def stddev(x):
+    return math.sqrt(average(variance(x)))
+
+def median(x):
+    return sorted(x)[len(x) // 2]
 
 NAME_PREFIX = 'hitc-'
