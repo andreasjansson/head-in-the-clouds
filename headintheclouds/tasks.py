@@ -4,6 +4,9 @@ import collections
 import yaml
 from StringIO import StringIO
 from collections import defaultdict
+import uuid
+import mimetypes
+import urlparse
 
 from fabric.api import parallel, env, sudo, settings, local, runs_once, run, abort, put
 import fabric.api
@@ -45,24 +48,9 @@ def uncache():
     util.cache().flush()
 
 @task
-def ssh():
-    local('ssh -o StrictHostKeyChecking=no -i "%s" %s@%s' % (env.key_filename, env.user, env.host))
-
-@task
-def upload(from_path, to_path='.', compress=True):
-    options = []
-    if str(compress) == 'True':
-        options.append('-C')
-    options = ' '.join(options)
-    local('scp %s -i %s "%s" %s@%s:"%s"' % (options, env.key_filename, from_path, env.user, env.host, to_path))
-
-@task
-def download(from_path, to_path='.', compress=True):
-    options = []
-    if str(compress) == 'True':
-        options.append('-C')
-    options = ' '.join(options)
-    local('scp %s -i %s %s@%s:"%s" "%s"' % (options, env.key_filename, env.user, env.host, from_path, to_path))
+def ssh(cmd=''):
+    local('ssh -o StrictHostKeyChecking=no -i "%s" %s@%s "%s"' % (
+        env.key_filename, env.user, env.host, cmd))
 
 @task
 @parallel
@@ -79,7 +67,7 @@ def test(puppet_dir='puppet'):
 
 @task
 @parallel
-def build(puppet_dir='puppet', init='init.pp', update=True):
+def build(init, puppet_dir='puppet', update=True):
     if str(update) == 'True':
         sudo('dpkg --configure -a')
         sudo('apt-get update')
@@ -97,7 +85,7 @@ def build(puppet_dir='puppet', init='init.pp', update=True):
     
     project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
                           ssh_opts='-o StrictHostKeyChecking=no')
-    sudo('puppet apply %s/%s' % (remote_puppet_dir, init))
+    sudo('FACTER_CLOUD="%s" puppet apply %s/%s' % (_provider().provider_name, remote_puppet_dir, init))
 
 def _get_environment():
     environment = defaultdict(list)

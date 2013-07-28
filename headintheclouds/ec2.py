@@ -160,6 +160,22 @@ def nodes():
     nodes = recache(_get_all_nodes)
     util.print_table(nodes, ['name', 'size', 'ip_address', 'status', 'launch_time'])
 
+@task
+@runs_once
+def firewall(open=None, close=None):
+    if not open or close:
+        raise Exception('Please provide open and/or close arguments')
+    if open:
+        open = int(open)
+        _ec2().authorize_security_group(
+            'default', ip_protocol='tcp', from_port=open, to_port=open,
+            cidr_ip='0.0.0.0/0')
+    if close:
+        close = int(close)
+        _ec2().revoke_security_group(
+            'default', ip_protocol='tcp', from_port=open, to_port=open,
+            cidr_ip='0.0.0.0/0')
+        
 def rename(role):
     current_node = _host_node()
     _set_instance_name(current_node['id'], role)

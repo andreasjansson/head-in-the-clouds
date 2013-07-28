@@ -3,6 +3,8 @@ import re
 import math
 import shutil
 import cPickle
+import uuid
+import contextlib
 from fabric.api import *
 
 def print_table(table, columns=None):
@@ -105,7 +107,7 @@ class NoneCache(object):
 
 class FSCache(object):
     def __init__(self):
-        self.client = pyfscache.FSCache('%s/cache' % cloudbuster_home(), days=7)
+        self.client = pyfscache.FSCache('%s/cache' % hitc_home(), days=7)
     def get(self, key):
         try:
             return self.client[key]
@@ -123,7 +125,7 @@ class FSCache(object):
             pass
     def flush(self):
         try:
-            shutil.rmtree('%s/cache' % cloudbuster_home())
+            shutil.rmtree('%s/cache' % hitc_home())
         except OSError, e:
             if e.errno != 2:
                 raise
@@ -139,8 +141,8 @@ def cache():
         cache.client = Cache()
     return cache.client
 
-def cloudbuster_home():
-    cb_home = os.path.expanduser('~/.cloudbuster')
+def hitc_home():
+    cb_home = os.path.expanduser('~/.hitc')
     if not os.path.exists(cb_home):
         os.mkdir(cb_home)
     return cb_home
@@ -173,5 +175,14 @@ def stddev(x):
 
 def median(x):
     return sorted(x)[len(x) // 2]
+
+@contextlib.contextmanager
+def temp_dir():
+    tmp_dir = '/tmp/' + str(uuid.uuid4())
+    run('mkdir %s || true' % tmp_dir)
+    try:
+        yield tmp_dir
+    finally:
+        run('rm -rf %s' % tmp_dir)
 
 NAME_PREFIX = 'hitc-'
