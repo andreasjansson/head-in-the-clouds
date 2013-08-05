@@ -14,10 +14,10 @@ import re
 from collections import defaultdict
 
 import util
-from util import cached, recache, uncache
+from util import cached, recache, uncache, autodoc
 
-@runs_once
 @task
+@runs_once
 def pricing():
 
     now = datetime.datetime.now()
@@ -62,9 +62,9 @@ def pricing():
 
     util.print_table(table, ['size', 'compute_units', 'memory', 'recent',
                              'median', 'stddev', 'max', 'hourly_cost'])
-    
 @task
 @runs_once
+@autodoc
 def create(role='idle', size='m1.small', count=1):
     image_id = _get_image_id_for_size(size)
     count = int(count)
@@ -86,6 +86,7 @@ def create(role='idle', size='m1.small', count=1):
 
 @task
 @runs_once
+@autodoc
 def spot(role='idle', size='m1.small', price=0.010, count=1):
     count = int(count)
     price = float(price)
@@ -162,6 +163,7 @@ def nodes():
 
 @task
 @runs_once
+@autodoc
 def firewall(open=None, close=None):
     if not open or close:
         raise Exception('Please provide open and/or close arguments')
@@ -210,7 +212,7 @@ def _get_all_nodes():
         launch_time = dateutil.parser.parse(node['launch_time'])
         node['launch_time'] = launch_time.astimezone(dateutil.tz.tzlocal())
         node['name'] = node['tags']['Name']
-        node['name'] = re.sub('^%s' % util.NAME_PREFIX, '', node['name'])
+        node['name'] = re.sub('^%s' % env.name_prefix, '', node['name'])
         node['role'] = re.sub('^(.+)$', r'\1', node['name'])
         node['size'] = node['instance_type']
         node['state'] = state
@@ -220,7 +222,7 @@ def _get_all_nodes():
 
     reservations = _ec2().get_all_instances()
     nodes = [format_node(x) for r in reservations for x in r.instances
-             if 'Name' in x.tags and x.tags['Name'].startswith(util.NAME_PREFIX)]
+             if 'Name' in x.tags and x.tags['Name'].startswith(env.name_prefix)]
     return nodes
 
 def _host_node():
@@ -230,7 +232,7 @@ def _host_role():
     return _host_node()['role']
 
 def _set_instance_name(instance_id, name):
-    _ec2().create_tags(instance_id, {'Name': '%s%s' % (util.NAME_PREFIX, name)})
+    _ec2().create_tags(instance_id, {'Name': '%s%s' % (env.name_prefix, name)})
 
 def _get_image_id_for_size(size):
     ubuntu1304_ebs = 'ami-10314d79'

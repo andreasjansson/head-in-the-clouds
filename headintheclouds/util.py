@@ -5,6 +5,8 @@ import shutil
 import cPickle
 import uuid
 import contextlib
+from functools import wraps
+import inspect
 from fabric.api import *
 
 def print_table(table, columns=None):
@@ -48,8 +50,9 @@ def print_table(table, columns=None):
     for row in clean_table:
         print format_string % row
 
-def cached(wrapped):
-    
+def cached(func):
+
+    @wraps(func)
     def wrapper(*args, **kwargs):
         recache = kwargs.get('_recache')
         if recache:
@@ -58,7 +61,7 @@ def cached(wrapped):
         if uncache:
             del kwargs['_uncache']
 
-        cache_key = wrapped.__module__ + '.' + wrapped.__name__
+        cache_key = func.__module__ + '.' + func.__name__
         if args or kwargs:
             cache_key += cPickle.dumps((args, kwargs))
 
@@ -66,12 +69,12 @@ def cached(wrapped):
             cache().delete(cache_key)
 
         if recache:
-            ret = wrapped(*args, **kwargs)
+            ret = func(*args, **kwargs)
             cache().set(cache_key, ret)
         else:
             ret = cache().get(cache_key)
             if ret is None:
-                ret = wrapped(*args, **kwargs)
+                ret = func(*args, **kwargs)
                 cache().set(cache_key, ret)
         return ret
     wrapper._cached = True
@@ -185,4 +188,30 @@ def temp_dir():
     finally:
         run('rm -rf %s' % tmp_dir)
 
-NAME_PREFIX = 'hitc-'
+def autodoc(func):
+
+    argspec = inspect.getargspec(func)
+    args = argspec.args
+    defaults = argspec.defaults
+    if defaults is None:
+        defaults = []
+
+    without_defaults = args[:len(args) - len(defaults)]
+    with_defaults = ['%s=%s' % (k, v) for k, v in zip(args[len(args) - len(defaults):], defaults)]
+    arg_string = ','.join(without_defaults + with_defaults)
+    if arg_string:
+        arg_string = ':' + arg_string
+
+    if not func.__doc__:
+        func.__doc__ = arg_string
+    else:
+        func.__doc__ = arg_string + '\n' + func.__doc__
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        func(*args, **kwargs)
+
+    return wrapped
+    
+if not hasattr(env, 'name_prefix'):
+    env.name_prefix = 'HITC-'

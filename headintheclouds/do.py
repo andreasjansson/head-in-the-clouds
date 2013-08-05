@@ -9,10 +9,11 @@ from fabric.api import *
 from fabric.contrib.console import confirm
 
 import util
-from util import cached, recache, uncache
+from util import cached, recache, uncache, autodoc
 
 @task
 @runs_once
+@autodoc
 def create(role='idle', size='512MB', count=1):
 
     image = 'Ubuntu 13.04 x64'
@@ -24,7 +25,7 @@ def create(role='idle', size='512MB', count=1):
     ssh_key_id = str(_get_ssh_key_id(SSH_KEY_NAME))
 
     for _ in range(int(count)):
-        name = '%s%s' % (util.NAME_PREFIX, role)
+        name = '%s%s' % (env.name_prefix, role)
         image = _do().create_droplet(name, size_id, image_id, region_id, [ssh_key_id])
 
     uncache(_get_all_nodes)
@@ -60,7 +61,7 @@ def pricing():
 
 def rename(role):
     current_node = _host_node()
-    name = util.NAME_PREFIX + role
+    name = env.name_prefix + role
     response = _do().request('/droplets/%s/rename?name=%s' % (
         current_node['id'], urllib.quote_plus(name)))
     if response['status'] != 'OK':
@@ -98,14 +99,14 @@ def _get_all_nodes():
         node['region'] = flip_dict(_get_regions())[node['region_id']]
         node['size'] = flip_dict(_get_sizes())[node['size_id']]
         node['image'] = flip_dict(_get_images())[node['image_id']]
-        node['name'] = re.sub('^%s' % util.NAME_PREFIX, '', node['name'])
+        node['name'] = re.sub('^%s' % env.name_prefix, '', node['name'])
         node['role'] = re.sub('^(.+)$', r'\1', node['name'])
 #        node['index'] = int(re.sub('^.+-([0-9]+)$',r'\1', node['name']))
         node['provider'] = __name__
         return node
 
     nodes = [format_node(x) for x in _do().show_active_droplets()
-                if x.name.startswith(util.NAME_PREFIX)]
+                if x.name.startswith(env.name_prefix)]
     return nodes
 
 @cached
