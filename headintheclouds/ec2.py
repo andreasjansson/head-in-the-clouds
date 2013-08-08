@@ -177,23 +177,31 @@ def firewall(open=None, close=None):
         _ec2().revoke_security_group(
             'default', ip_protocol='tcp', from_port=open, to_port=open,
             cidr_ip='0.0.0.0/0')
+
+@task
+@runs_once
+def hostsfile():
+    nodes = _get_all_nodes()
+    util.print_table(nodes, ['ip_address', 'private_dns_name'])
         
 def rename(role):
     current_node = _host_node()
     _set_instance_name(current_node['id'], role)
 
-def get_local_environment():
+def get_local_environment(running_only=False):
     nodes = _get_all_nodes()
     environment = defaultdict(list)
     for node in nodes:
-        environment[node['role']].append(node['private_ip_address'])
+        if node['status'] == 'running':
+            environment[node['role']].append(node['private_ip_address'])
     return environment
 
-def get_remote_environment():
+def get_remote_environment(running_only=False):
     nodes = _get_all_nodes()
     environment = defaultdict(list)
     for node in nodes:
-        environment[node['role']].append(node['ip_address'])
+        if node['status'] == 'running':
+            environment[node['role']].append(node['ip_address'])
     return environment
 
 def _ec2():

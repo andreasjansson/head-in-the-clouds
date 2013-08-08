@@ -68,7 +68,7 @@ def rename(role):
         raise Exception('Rename failed: %s' % repr(response))
     uncache(_get_all_nodes)
 
-def get_remote_environment():
+def get_remote_environment(running_only=False):
     nodes = _get_all_nodes()
     environment = defaultdict(list)
     for node in nodes:

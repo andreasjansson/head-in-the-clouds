@@ -18,6 +18,7 @@ def task(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         with _provider_settings():
+            env.role = env.all_nodes[env.host]['role']
             func(*args, **kwargs)
     return fabric.api.task(wrapper)
 
@@ -67,7 +68,7 @@ def test(puppet_dir='puppet'):
 
 @task
 @parallel
-def build(init, puppet_dir='puppet', update=True):
+def puppet(init, puppet_dir='puppet', update=True):
     if str(update) == 'True':
         sudo('dpkg --configure -a')
         sudo('apt-get update')
@@ -80,20 +81,25 @@ def build(init, puppet_dir='puppet', update=True):
     remote_puppet_dir = '/etc/puppet'
     sudo('chown -R %s %s' % (env.user, remote_puppet_dir))
 
-    nodes_yaml = yaml.safe_dump(_get_environment())
+    nodes_yaml = yaml.safe_dump(_get_environment(True))
     put(StringIO(nodes_yaml), remote_puppet_dir + '/nodes.yaml')
     
     project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
                           ssh_opts='-o StrictHostKeyChecking=no')
     sudo('FACTER_CLOUD="%s" puppet apply %s/%s' % (_provider().provider_name, remote_puppet_dir, init))
 
-def _get_environment():
+@task
+@parallel
+def ping():
+    local('ping -c1 %s' % env.host)
+
+def _get_environment(running_only=False):
     environment = defaultdict(list)
     for p in env.providers:
         if p == env.all_nodes[env.host]['provider']:
-            provider_env = sys.modules[p].get_local_environment()
+            provider_env = sys.modules[p].get_local_environment(running_only)
         else:
-            provider_env = sys.modules[p].get_remote_environment()
+            provider_env = sys.modules[p].get_remote_environment(running_only)
         for role, nodes in provider_env.iteritems():
             environment[role].extend(nodes)
     return dict(environment)
