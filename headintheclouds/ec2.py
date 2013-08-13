@@ -127,20 +127,19 @@ def spot(role='idle', size='m1.small', price=0.010, count=1):
 
     while True:
         requests = _ec2().get_all_spot_instance_requests(request_ids)
-        if not all([r.state == 'open' for r in requests]):
+
+        statuses = [r.status.code for r in requests]
+        status_counts = [(status, statuses.count(status))
+                         for status in sorted(set(statuses))]
+        print 'Waiting for spot requests to be fulfilled [%s]' % (
+            ', '.join(['%s: %d' % s for s in status_counts]))
+
+        if all([status == 'fulfilled' for status in statuses]):
             break
 
-        print 'Waiting for spot requests to be fulfilled [%s]' % (
-            ', '.join([r.status.code for r in requests]))
         time.sleep(5)
-
-    print 'Spot request statuses: [%s]' % (
-        ', '.join([r.status.code for r in requests]))
-
+        
     active_requests = [r for r in requests if r.state == 'active']
-    if not active_requests:
-        print 'No requests succeeded, giving up'
-
     instance_ids = [r.instance_id for r in active_requests]
     for i, instance_id in enumerate(instance_ids):
         _set_instance_name(instance_id, role)
@@ -159,7 +158,7 @@ def terminate():
 @runs_once
 def nodes():
     nodes = recache(_get_all_nodes)
-    util.print_table(nodes, ['name', 'size', 'ip_address', 'status', 'launch_time'])
+    util.print_table(nodes, ['name', 'size', 'ip_address', 'private_dns_name', 'status', 'launch_time'])
 
 @task
 @runs_once
@@ -181,7 +180,7 @@ def firewall(open=None, close=None):
 @task
 @runs_once
 def hostsfile():
-    nodes = _get_all_nodes()
+    nodes = [n for n in _get_all_nodes() if n['status'] == 'running']
     util.print_table(nodes, ['ip_address', 'private_dns_name'])
         
 def rename(role):
@@ -193,16 +192,9 @@ def get_local_environment(running_only=False):
     environment = defaultdict(list)
     for node in nodes:
         if node['status'] == 'running':
-            environment[node['role']].append(node['private_ip_address'])
+            environment[node['role']].append(node['public_dns_name'])
     return environment
-
-def get_remote_environment(running_only=False):
-    nodes = _get_all_nodes()
-    environment = defaultdict(list)
-    for node in nodes:
-        if node['status'] == 'running':
-            environment[node['role']].append(node['ip_address'])
-    return environment
+get_remote_environment = get_local_environment
 
 def _ec2():
     if not hasattr(_ec2, 'client'):
@@ -234,7 +226,7 @@ def _get_all_nodes():
     return nodes
 
 def _host_node():
-    return [x for x in _get_all_nodes() if x['ip_address'] == env.host][0]
+    return [x for x in _get_all_nodes() if x['ip_address'] == env.host or x['public_dns_name'] == env.host][0]
 
 def _host_role():
     return _host_node()['role']
@@ -264,6 +256,7 @@ KEYPAIR_NAME = util.env_var('AWS_KEYPAIR_NAME')
 if not hasattr(env, 'all_nodes'):
     env.all_nodes = {}
 env.all_nodes.update({x['ip_address']: x for x in _get_all_nodes() if x['ip_address']})
+env.all_nodes.update({x['public_dns_name']: x for x in _get_all_nodes() if x['public_dns_name']})
 if not hasattr(env, 'providers'):
     env.providers = [__name__]
 else:
