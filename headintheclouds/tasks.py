@@ -55,19 +55,6 @@ def ssh(cmd=''):
 
 @task
 @parallel
-def test(puppet_dir='puppet'):
-
-    if not puppet_dir.endswith('/'):
-        puppet_dir += '/'
-    remote_puppet_dir = '/etc/puppet'
-    sudo('chown -R %s %s' % (env.user, remote_puppet_dir))
-    project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
-                          ssh_opts='-o StrictHostKeyChecking=no')
-
-    sudo('export FACTER_blah="{a => 1, b => 2}"; puppet apply /etc/puppet/init.pp')
-
-@task
-@parallel
 def puppet(init, puppet_dir='puppet', update=True):
     if str(update) == 'True':
         sudo('dpkg --configure -a')
