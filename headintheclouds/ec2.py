@@ -137,6 +137,9 @@ def spot(role='idle', size='m1.small', price=0.010, count=1):
         if all([status == 'fulfilled' for status in statuses]):
             break
 
+        if all([status == 'price-too-low']):
+            abort('Price too low')
+
         time.sleep(5)
         
     active_requests = [r for r in requests if r.state == 'active']

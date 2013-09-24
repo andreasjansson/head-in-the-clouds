@@ -1,3 +1,6 @@
 *.pyc
 *~
 headintheclouds.egg-info
+build
+dist
+MANIFEST

@@ -92,6 +92,8 @@ def _get_environment(running_only=False):
     return dict(environment)
 
 def _provider():
+    if env.host not in env.all_nodes:
+        abort('No such host found')
     return sys.modules[env.all_nodes[env.host]['provider']]
 
 def _provider_settings():
