@@ -54,6 +54,11 @@ def ssh(cmd=''):
         env.key_filename, env.user, env.host, cmd))
 
 @task
+def mosh():
+    local('mosh --ssh="ssh -o StrictHostKeyChecking=no -i \"%s\"" %s@%s' % (
+        env.key_filename, env.user, env.host))
+
+@task
 @parallel
 def puppet(init, puppet_dir='puppet', update=True):
     if str(update) == 'True':
@@ -74,6 +79,38 @@ def puppet(init, puppet_dir='puppet', update=True):
     project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
                           ssh_opts='-o StrictHostKeyChecking=no')
     sudo('FACTER_CLOUD="%s" puppet apply %s/%s' % (_provider().provider_name, remote_puppet_dir, init))
+
+@task
+@parallel
+def docker(image, options=None):
+    ret = run('which docker')
+    if ret.failed:
+        docker_setup()
+    sudo('docker run %s %s' % (options, image))
+
+@task
+@parallel
+def docker_setup():
+    sudo('sh -c "wget -qO- https://get.docker.io/gpg | apt-key add -"')
+    sudo('sudo sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
+    sudo('apt-get update')
+    sudo('apt-get -y install linux-image-extra-virtual')
+    sudo('apt-get -y install lxc-docker')
+    sudo('apt-get -y install mosh')
+
+@task
+@runs_once
+def tunnel(local_port, remote_port=None):
+    if remote_port is None:
+        remote_port = local_port
+    local('ssh -o StrictHostKeyChecking=no -i "%(key)s" -f %(user)s@%(host)s -L %(local_port)s:localhost:%(remote_port)s -N' % {
+        'key': env.key_filename,
+        'user': env.user,
+        'host': env.host,
+        'local_port': local_port,
+        'remote_port': remote_port
+    })
+
 
 @task
 @parallel

@@ -65,42 +65,59 @@ def pricing():
 @task
 @runs_once
 @autodoc
-def create(role='idle', size='m1.small', count=1):
-    image_id = _get_image_id_for_size(size)
+def create(role='idle',
+           size='m1.small',
+           count=1,
+           ubuntu_version='12.04',
+           prefer_ebs=False,
+           placement='us-east-1b',
+           security_group='default'):
+
+    image_id = _get_image_id_for_size(size, ubuntu_version, prefer_ebs)
     count = int(count)
+    prefer_ebs = str(prefer_ebs).lower() == 'true'
 
     reservation = _ec2().run_instances(
         image_id=image_id,
         min_count=count,
         max_count=count,
-        security_groups=['default'],
+        security_groups=[security_group],
         instance_type=size,
-        placement='us-east-1b',
+        placement=placement,
         key_name=KEYPAIR_NAME,
     )
 
     for instance in reservation.instances:
         _set_instance_name(instance.id, role)
 
-    puts('Created %d %s instance(s)' % (count, size))
+    puts('Created %d %s instance%s' % (count, size, 's' if count > 1 else ''))
 
 @task
 @runs_once
 @autodoc
-def spot(role='idle', size='m1.small', price=0.010, count=1):
+def spot(role='idle',
+         size='m1.small',
+         price=0.010,
+         count=1,
+         ubuntu_version='12.04',
+         prefer_ebs=False,
+         placement='us-east-1b',
+         security_group='default'):
+
     count = int(count)
     price = float(price)
+    prefer_ebs = str(prefer_ebs).lower() == 'true'
 
-    image_id = _get_image_id_for_size(size)
+    image_id = _get_image_id_for_size(size, ubuntu_version, prefer_ebs)
 
-    puts('Creating spot requests for %d %s instance(s) at $%.3f' % (count, size, price))
+    puts('Creating spot requests for %d %s instance%s at $%.3f' % (count, size, 's' if count > 1 else '', price))
     requests = _ec2().request_spot_instances(
         price=price,
         image_id=image_id,
         count=count,
-        security_groups=['default'],
+        security_groups=[security_group],
         instance_type=size,
-        placement='us-east-1b',
+        placement=placement,
         key_name=KEYPAIR_NAME,
     )
 
@@ -237,17 +254,32 @@ def _host_role():
 def _set_instance_name(instance_id, name):
     _ec2().create_tags(instance_id, {'Name': '%s%s' % (env.name_prefix, name)})
 
-def _get_image_id_for_size(size):
-    ubuntu1304_ebs = 'ami-10314d79'
-    ubuntu1304_instance_store = 'ami-762d491f'
-    ubuntu1304_hvm = 'ami-08345061'
+def _get_image_id_for_size(size, ubuntu_version, prefer_ebs=False):
+    images = {
+        ('12.04', 'ebs'):      'ami-a73264ce',
+        ('12.04', 'hvm'):      'ami-b93264d0',
+        ('12.04', 'instance'): 'ami-ad3660c4',
+        ('12.10', 'ebs'):      'ami-2bc99d42',
+        ('12.10', 'hvm'):      'ami-2dc99d44',
+        ('12.10', 'instance'): 'ami-a9cf9bc0',
+        ('13.04', 'ebs'):      'ami-10314d79',
+        ('13.04', 'hvm'):      'ami-e1277b88',
+        ('13.04', 'instance'): 'ami-762d491f',
+        ('13.10', 'ebs'):      'ami-ad184ac4',
+        ('13.10', 'hvm'):      'ami-a1184ac8',
+        ('13.10', 'instance'): 'ami-271a484e',
+    }
 
     if size in ['cc2.8xlarge', 'cr1.8xlarge']:
-        image_id = ubuntu1304_hvm
+        root_store = 'hvm'
     elif size in ['t1.micro']:
-        image_id = ubuntu1304_ebs
+        root_store = 'ebs'
     else:
-        image_id = ubuntu1304_instance_store
+        root_store = 'ebs' if prefer_ebs else 'instance'
+
+    image_id = images.get((ubuntu_version, root_store))
+    if not image_id:
+        abort('Unknown Ubuntu version: %s' % ubuntu_version)
 
     return image_id
 
