@@ -12,6 +12,7 @@ import fabric.contrib.project as project
 import cPickle
 import re
 from collections import defaultdict
+import requests
 
 import util
 from util import cached, recache, uncache, autodoc
@@ -47,6 +48,7 @@ def pricing():
         data[t].append(item.price)
 
     table = []
+    node_types = get_node_types()
     for t, prices in data.iteritems():
         item = {}
         item['size'] = t
@@ -54,13 +56,14 @@ def pricing():
         item['median'] = '%.3f' % util.median(prices)
         item['stddev'] = '%.3f' % util.stddev(prices)
         item['max'] = '%.3f' % max(prices)
-        item.update(get_node_types()[t])
-        item['hourly_cost'] = '%.3f' % item['linux_cost']
-        table.append(item)
+        if t in node_types:
+            item.update(node_types[t])
+            item['hourly_cost'] = '%.3f' % item['linux_cost']
+            table.append(item)
 
-    table.sort(key=lambda x: x['linux_cost'])
+    table.sort(key=lambda x: x['hourly_cost'])
 
-    util.print_table(table, ['size', 'compute_units', 'memory', 'recent',
+    util.print_table(table, ['size', 'misc', 'cores', 'memory', 'recent',
                              'median', 'stddev', 'max', 'hourly_cost'])
 @task
 @runs_once
@@ -304,203 +307,155 @@ settings = {
 }
 
 def get_node_types():
-    return {
-        'm1.small': {
-            'name': 'M1 Small',
-            'memory': 1.7,
-            'compute_units': 1,
-            'storage': 160,
-            'ioperf': 'Moderate',
-            'architecture': '32/64-bit',
-            'maxips': 8,
-            'linux_cost': 0.060,
-            'windows_cost': 0.091,
-        },
-        'm1.medium': {
-            'name': 'M1 Medium',
-            'memory': 3.75,
-            'compute_units': 2,
-            'storage': 410,
-            'ioperf': 'Moderate',
-            'architecture': '32/64-bit',
-            'maxips': 12,
-            'linux_cost': 0.12,
-            'windows_cost': 0.182,
-        },
-        'm1.large': {
-            'name': 'M1 Large',
-            'memory': 7.5,
-            'compute_units': 4,
-            'storage': 850,
-            'ioperf': 'High / 500 Mbps',
-            'architecture': '64-bit',
-            'maxips': 30,
-            'linux_cost': 0.24,
-            'windows_cost': 0.364,
-        },
-        'm1.xlarge': {
-            'name': 'M1 Extra Large',
-            'memory': 15,
-            'compute_units': 8,
-            'storage': 1690,
-            'ioperf': 'High / 1000 Mbps',
-            'architecture': '64-bit',
-            'maxips': 60,
-            'linux_cost': 0.48,
-            'windows_cost': 0.728,
-        },
-        't1.micro': {
-            'name': 'Micro',
-            'memory': 0.6,
-            'compute_units': 2,
-            'storage': 0,
-            'ioperf': 'Low',
-            'architecture': '32/64-bit',
-            'maxips': 1,
-            'linux_cost': 0.02,
-            'windows_cost': 0.02,
-        },
-        'm2.xlarge': {
-            'name': 'High-Memory Extra Large',
-            'memory': 17.10,
-            'compute_units': 6.5,
-            'storage': 420,
-            'ioperf': 'Moderate',
-            'architecture': '64-bit',
-            'maxips': 60,
-            'linux_cost': 0.41,
-            'windows_cost': 0.51,
-        },
-        'm2.2xlarge': {
-            'name': 'High-Memory Double Extra Large',
-            'memory': 34.2,
-            'compute_units': 13,
-            'storage': 850,
-            'ioperf': 'High',
-            'architecture': '64-bit',
-            'maxips': 120,
-            'linux_cost': 0.82,
-            'windows_cost': 1.02,
-        },
-        'm2.4xlarge': {
-            'name': 'High-Memory Quadruple Extra Large',
-            'memory': 68.4,
-            'compute_units': 26,
-            'storage': 1690,
-            'ioperf': 'High / 1000 Mbps',
-            'architecture': '64-bit',
-            'maxips': 240,
-            'linux_cost': 1.64,
-            'windows_cost': 2.04,
-        },
-        'm3.xlarge': {
-            'name': 'M3 Extra Large',
-            'memory': 15,
-            'compute_units': 13,
-            'storage': 0,
-            'ioperf': 'Moderate / 500 Mbps',
-            'architecture': '64-bit',
-            'maxips': 60,
-            'linux_cost': 0.50,
-            'windows_cost': 0.78,
-        },
-        'm3.2xlarge': {
-            'name': 'M3 Double Extra Large',
-            'memory': 30,
-            'compute_units': 26,
-            'storage': 0,
-            'ioperf': 'High / 1000 Mbps',
-            'architecture': '64-bit',
-            'maxips': 120,
-            'linux_cost': 1.00,
-            'windows_cost': 1.56,
-        },
-        'c1.medium': {
-            'name': 'High-CPU Medium',
-            'memory': 1.7,
-            'compute_units': 5,
-            'storage': 350,
-            'ioperf': 'Moderate',
-            'architecture': '32/64-bit',
-            'maxips': 12,
-            'linux_cost': 0.145,
-            'windows_cost': 0.225,
-        },
-        'c1.xlarge': {
-            'name': 'High-CPU Extra Large',
-            'memory': 7,
-            'compute_units': 20,
-            'storage': 1690,
-            'ioperf': 'High / 1000 Mbps',
-            'architecture': '64-bit',
-            'maxips': 60,
-            'linux_cost': 0.58,
-            'windows_cost': 0.90,
-        },
-        'cc1.4xlarge': {
-            'name': 'Cluster Compute Quadruple Extra Large',
-            'memory': 23,
-            'compute_units': 33.5,
-            'storage': 1690,
-            'ioperf': '',
-            'architecture': 'Xeon X5570',
-            'maxips': 1,
-            'linux_cost': 1.30,
-            'windows_cost': 1.61,
-        },
-        'cc2.8xlarge': {
-            'name': 'Cluster Compute Eight Extra Large',
-            'memory': 60.5,
-            'compute_units': 88,
-            'storage': 3370,
-            'ioperf': '',
-            'architecture': 'Xeon E5-2670',
-            'maxips': 240,
-            'linux_cost': 2.40,
-            'windows_cost': 2.97,
-        },
-        'cg1.4xlarge': {
-            'name': 'Cluster GPU Quadruple Extra Large',
-            'memory': 22,
-            'compute_units': 33.5,
-            'storage': 1690,
-            'ioperf': '',
-            'architecture': 'Xeon X5570',
-            'maxips': 1,
-            'linux_cost': 2.10,
-            'windows_cost': 2.60,
-        },
-        'hi1.4xlarge': {
-            'name': 'High I/O Quadruple Extra Large',
-            'memory': 60.5,
-            'compute_units': 35,
-            'storage': 2048,
-            'ioperf': '',
-            'architecture': '64-bit',
-            'maxips': 1,
-            'linux_cost': 3.10,
-            'windows_cost': 3.58,
-        },
-        'hs1.8xlarge': {
-            'name': 'High Storage Eight Extra Large',
-            'memory': 117.00,
-            'compute_units': 35,
-            'storage': 49152,
-            'ioperf': '',
-            'architecture': '64-bit',
-            'maxips': 1,
-            'linux_cost': 4.600,
-            'windows_cost': 4.931,
-        },
-        'cr1.8xlarge': {
-            'name': 'High Memory Cluster Eight Extra Large',
-            'memory': 244.00,
-            'compute_units': 88,
-            'storage': 240,
-            'ioperf': '',
-            'architecture': '64-bit',
-            'maxips': 1,
-            'linux_cost': 3.500,
-            'windows_cost': 3.831,
-        },
+
+    memory_map = {
+      'm1.small': 1700, 'm1.medium': 3750, 'm1.large': 7500, 'm1.xlarge': 15000,
+      'm2.xlarge': 17100, 'm2.2xlarge': 34200, 'm2.4xlarge': 68400,
+      'm3.xlarge': 15000, 'm3.2xlarge': 30000,
+      'c1.medium': 1700, 'c1.xlarge': 7000,
+      'hi1.4xlarge': 60500,
+      'cg1.4xlarge': 22000,
+      'cc1.4xlarge': 23000, 'cc2.8xlarge': 60500,
+      't1.micro': 1700,
+      'm3.xlarge': 15000, 'm3.xlarge': 30000,
+      'cr1.8xlarge': 244000,
+      'hs1.8xlarge': 117000,
+      'g2.2xlarge': 15000,      
+      'db.m1.small': 1700, 'db.m1.medium': 3750, 'db.m1.large': 7500, 'db.m1.xlarge': 15000,
+      'db.m2.xlarge': 17100, 'db.m2.2xlarge': 34000, 'db.m2.4xlarge': 68000, 'db.cr1.8xlarge': 244000,
+      'db.t1.micro': 613,
+      'c3.large': 3750, 'c3.xlarge': 7000, 'c3.2xlarge': 15000, 'c3.4xlarge': 30000, 'c3.8xlarge': 60000, 
     }
+    disk_map = {
+      'm1.small': 160, 'm1.medium': 410, 'm1.large':850, 'm1.xlarge': 1690,
+      'm2.xlarge': 420, 'm2.2xlarge': 850, 'm2.4xlarge': 1690,
+      'm3.xlarge': 0, 'm3.2xlarge': 0,
+      'c1.medium': 350, 'c1.xlarge': 1690,
+      'hi1.4xlarge': 2048,
+      'cg1.4xlarge': 1690,
+      'cc1.4xlarge': 1690, 'cc2.8xlarge': 3370,
+      't1.micro': 160,
+      'm3.xlarge': 0, 'm3.xlarge': 0,
+      'cr1.8xlarge': 240,
+      'hs1.8xlarge': 48000,
+      'g2.2xlarge': 60,      
+      'db.m1.small': 160, 'db.m1.medium': 410, 'db.m1.large':850, 'db.m1.xlarge': 1690,
+      'db.m2.xlarge': 420, 'db.m2.2xlarge': 850, 'db.m2.4xlarge': 1690, 'db.cr1.8xlarge': 1690,
+      'db.t1.micro': 160,
+      'c3.large': 32, 'c3.xlarge': 80, 'c3.2xlarge': 160, 'c3.4xlarge': 320, 'c3.8xlarge': 640, 
+    }
+    platform_map = {
+      'm1.small': 32, 'm1.medium': 32, 'm1.large': 64, 'm1.xlarge': 64,
+      'm2.xlarge': 64, 'm2.2xlarge': 64, 'm2.4xlarge': 64,
+      'm3.xlarge': 64, 'm3.2xlarge': 64,
+      'c1.medium': 32, 'c1.xlarge': 64,
+      'hi1.4xlarge': 64,
+      'cg1.4xlarge': 64,
+      'cc1.4xlarge': 64, 'cc2.8xlarge': 64,
+      't1.micro': 32,
+      'm3.xlarge': 64, 'm3.xlarge': 64,
+      'cr1.8xlarge': 64,
+      'hs1.8xlarge': 64,
+      'g2.2xlarge': 64,      
+      'db.m1.small': 64, 'db.m1.medium': 64, 'db.m1.large': 64, 'db.m1.xlarge': 64,
+      'db.m2.xlarge': 64, 'db.m2.2xlarge': 64, 'db.m2.4xlarge': 64, 'db.cr1.8xlarge': 64,
+      'db.t1.micro': 64,
+      'c3.large': 64, 'c3.xlarge': 64, 'c3.2xlarge': 64, 'c3.4xlarge': 64, 'c3.8xlarge': 64, 
+    }
+    compute_units_map = {
+      'm1.small': 1, 'm1.medium': 2, 'm1.large': 4, 'm1.xlarge': 8,
+      'm2.xlarge': 6, 'm2.2xlarge': 13, 'm2.4xlarge': 26,
+      'm3.xlarge': 13, 'm3.2xlarge': 26,
+      'c1.medium': 5, 'c1.xlarge': 20,
+      'hi1.4xlarge': 35,
+      'cg1.4xlarge': 34,
+      'cc1.4xlarge': 34, 'cc2.8xlarge': 88,
+      't1.micro': 2,
+      'cr1.8xlarge': 88,
+      'hs1.8xlarge': 35,
+      'g2.2xlarge': 26,
+      'unknown': 0,      
+      'db.m1.small': 1, 'db.m1.medium': 2, 'db.m1.large': 4, 'db.m1.xlarge': 8,
+      'db.m2.xlarge': 6.5, 'db.m2.2xlarge': 13, 'db.m2.4xlarge': 26, 'db.cr1.8xlarge': 88,
+      'db.t1.micro': 1,
+      'c3.large': 7, 'c3.xlarge': 14, 'c3.2xlarge': 28, 'c3.4xlarge': 55, 'c3.8xlarge': 108, 
+    }
+    virtual_cores_map = {
+      'm1.small': 1, 'm1.medium': 1, 'm1.large': 2, 'm1.xlarge': 4,
+      'm2.xlarge': 2, 'm2.2xlarge': 4, 'm2.4xlarge': 8,
+      'm3.xlarge': 4, 'm3.2xlarge': 8,
+      'c1.medium': 2, 'c1.xlarge': 8,
+      'hi1.4xlarge': 16,
+      'cg1.4xlarge': 8,
+      'cc1.4xlarge': 8, 'cc2.8xlarge': 16,
+      't1.micro': 0,
+      'cr1.8xlarge': 16,
+      'hs1.8xlarge': 16,
+      'g2.2xlarge': 8,
+      'unknown': 0,      
+      'db.m1.small': 1, 'db.m1.medium': 1, 'db.m1.large': 2, 'db.m1.xlarge': 4,
+      'db.m2.xlarge': 2, 'db.m2.2xlarge': 4, 'db.m2.4xlarge': 8, 'db.cr1.8xlarge': 16,
+      'db.t1.micro': 0,
+      'c3.large': 2, 'c3.xlarge': 4, 'c3.2xlarge': 8, 'c3.4xlarge': 16, 'c3.8xlarge': 32, 
+    }
+    disk_type_map = {
+      'm1.small': 'ephemeral', 'm1.medium': 'ephemeral', 'm1.large': 'ephemeral', 'm1.xlarge': 'ephemeral',
+      'm2.xlarge': 'ephemeral', 'm2.2xlarge': 'ephemeral', 'm2.4xlarge': 'ephemeral',
+      'm3.xlarge': 'ephemeral', 'm3.2xlarge': 'ephemeral',
+      'c1.medium': 'ephemeral', 'c1.xlarge': 'ephemeral',
+      'hi1.4xlarge': 'ssd',
+      'cg1.4xlarge': 'ephemeral',
+      'cc1.4xlarge': 'ephemeral', 'cc2.8xlarge': 'ephemeral',
+      't1.micro': 'ebs',
+      'cr1.8xlarge': 'ssd',
+      'hs1.8xlarge': 'ephemeral',
+      'g2.2xlarge': 'ssd',
+      'unknown': 'ephemeral',      
+      'db.m1.small': 'ephemeral', 'db.m1.medium': 'ephemeral', 'db.m1.large': 'ephemeral', 'db.m1.xlarge': 'ephemeral',
+      'db.m2.xlarge': 'ephemeral', 'db.m2.2xlarge': 'ephemeral', 'db.m2.4xlarge': 'ephemeral', 'db.cr1.8xlarge': 'ephemeral',
+      'db.t1.micro': 'ebs',
+      'c3.large': 'ssd', 'c3.xlarge': 'ssd', 'c3.2xlarge': 'ssd', 'c3.4xlarge': 'ssd', 'c3.8xlarge': 'ssd', 
+    }
+    misc_map = {
+        'hi1.4xlarge': 'ssd 10Gb',
+        'hs1.8xlarge': '10Gb',
+        'cr1.8xlarge': 'ssd 10Gb',
+        'g2.2xlarge': 'ssd',
+        'cc2.8xlarge': '10Gb',
+        'g2.2xlarge': 'gpu',
+        'cg1.4xlarge': 'gpu 10Gb',
+        'c3.large': 'ssd', 'c3.xlarge': 'ssd', 'c3.2xlarge': 'ssd', 'c3.4xlarge': 'ssd', 'c3.8xlarge': 'ssd',
+    }
+
+    node_types = {}
+
+    r = requests.get('http://aws.amazon.com/ec2/pricing/json/linux-od.json')
+    if not r:
+        return {}
+
+    data = r.json()
+    instance_types = [r['instanceTypes'] for r in data['config']['regions']
+                      if r['region'] == 'us-east'][0]
+    for instance_type in instance_types:
+        for size_block in instance_type['sizes']:
+            node_type = {}
+            size = size_block['size']
+            value_columns = size_block['valueColumns']
+            node_type['linux_cost'] = float([c['prices']['USD'] for c in value_columns
+                                             if c['name'] == 'linux'][0])
+            if size in memory_map:
+                node_type['memory'] = memory_map[size] / 1000.0
+            if size in disk_map:
+                node_type['disk'] = disk_map[size]
+            if size in platform_map:
+                node_type['architecture'] = platform_map[size]
+            if size in compute_units_map:
+                node_type['compute_units'] = compute_units_map[size]
+            if size in virtual_cores_map:
+                node_type['cores'] = virtual_cores_map[size]
+            if size in misc_map:
+                node_type['misc'] = misc_map[size]
+
+            node_types[size] = node_type
+
+    return node_types

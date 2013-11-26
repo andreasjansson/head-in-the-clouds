@@ -7,6 +7,7 @@ from collections import defaultdict
 import uuid
 import mimetypes
 import urlparse
+import docker
 
 from fabric.api import parallel, env, sudo, settings, local, runs_once, run, abort, put
 import fabric.api
@@ -80,13 +81,13 @@ def puppet(init, puppet_dir='puppet', update=True):
                           ssh_opts='-o StrictHostKeyChecking=no')
     sudo('FACTER_CLOUD="%s" puppet apply %s/%s' % (_provider().provider_name, remote_puppet_dir, init))
 
-@task
-@parallel
-def docker(image, options=None):
-    ret = run('which docker')
-    if ret.failed:
-        docker_setup()
-    sudo('docker run %s %s' % (options, image))
+#@task
+#@parallel
+#def docker(image, options=None):
+#    ret = run('which docker')
+#    if ret.failed:
+#        docker_setup()
+#    sudo('docker run %s %s' % (options, image))
 
 @task
 @parallel
@@ -97,6 +98,52 @@ def docker_setup():
     sudo('apt-get -y install linux-image-extra-virtual')
     sudo('apt-get -y install lxc-docker')
     sudo('apt-get -y install mosh')
+    sudo('reboot')
+
+@task
+#@parallel
+def docker_run(image, cmd=None, name=None, ports=None):
+    parts = ['docker', 'run', '-d']
+    if name:
+        parts += ['-name', name]
+    parts += [image]
+    if cmd:
+        parts += [cmd]
+    result = sudo(' '.join(parts))
+    process = result.strip()
+
+    if ports:
+        ports = ports.split(',')
+        for port in ports:
+            port = port.strip()
+            docker.bind(process, port)
+
+    #iptables -t nat -A DOCKER -p tcp --dport 80 -j DNAT --to-destination 172.17.0.250:80
+    #iptables -t nat -D DOCKER -p tcp --dport 80 -j DNAT --to-destination 172.17.0.250:80 # to disconnect
+'''
+    function docker-get-ip() {
+        container=$1
+        docker inspect $container | grep IPAddress | sed -r 's/^.+: "(.+)",/\1/g'
+    }
+
+    function docker-bind() {
+        container=$1
+        port=$2
+        docker-unbind $port
+        ip=$(docker-get-ip $container)
+        iptables -t nat -A DOCKER -p tcp --dport $port -j DNAT --to-destination $ip:$port
+    }
+
+    function docker-unbind() {
+        port=$1
+        iptables -t nat -S | grep "^-A DOCKER -p tcp -m tcp --dport $port" |
+        while read rule
+        do
+            undo_rule=$(echo $rule | sed 's/^-A DOCKER/-D DOCKER/')
+            iptables -t nat $undo_rule
+        done
+    }
+'''
 
 @task
 @runs_once

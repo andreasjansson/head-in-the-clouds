@@ -27,7 +27,7 @@ def print_table(table, columns=None):
     for row in table:
         clean_row = {}
         for column in columns:
-            value = str(row[column])
+            value = str(row.get(column, ''))
             if len(value) > lengths[column]:
                 lengths[column] = len(value)
             if aligns[column] == '' and not is_number(value):
