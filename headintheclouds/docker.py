@@ -1,5 +1,6 @@
 import re
 import os
+import contextlib
 import simplejson as json
 import fabric.contrib.files
 import fabric.api as fab
@@ -67,10 +68,9 @@ def setup():
     if not fabric.contrib.files.exists('~/.ssh/id_rsa'):
         fab.run('ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa')
 
-    with fab.hide('everything'):
-        ret = fab.run('which docker')
-    if not ret.failed:
-        return
+    with contextlib.nested(fab.hide('everything'), fab.settings(warn_only=True)):
+        if not fab.run('which docker').failed:
+            return
 
     sudo('sh -c "wget -qO- https://get.docker.io/gpg | apt-key add -"')
     sudo('sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
