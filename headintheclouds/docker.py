@@ -82,7 +82,7 @@ def setup():
     sudo('reboot')
 
 @task
-@fab.parallel
+#@fab.parallel
 @autodoc
 def run(image, cmd=None, name=None, ports=None, **kwargs):
     setup()
@@ -96,7 +96,7 @@ def run(image, cmd=None, name=None, ports=None, **kwargs):
     if cmd:
         parts += [cmd]
     result = sudo(' '.join(parts))
-    process = result.strip()
+    process = result.strip().split('\n')[-1]
 
     if ports:
         ports = ports.split(',')
