@@ -82,7 +82,7 @@ def setup():
     sudo('reboot')
 
 @task
-#@fab.parallel
+@fab.parallel
 @autodoc
 def run(image, cmd=None, name=None, ports=None, **kwargs):
     setup()
