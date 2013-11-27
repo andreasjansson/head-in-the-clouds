@@ -20,15 +20,16 @@ def get_ip(process):
     ip = info[0]['NetworkSettings']['IPAddress']
     return ip
 
-def container_ssh(process):
+def inside(process):
     ip = get_ip(process)
-    return fabric.context_managers.settings(
-        host=ip, user='root', gateway='%s@%s:%s' % (env.user, env.host, env.port))
+    return fabric.context_managers.settings(gateway='%s@%s:%s' % (env.user, env.host, env.port),
+                                            host=ip, host_string='root@%s' % ip, user='root',
+                                            key_filename=None, password='root', no_keys=True, allow_agent=False)
 
 @task
 def ssh(process, cmd=''):
     ip = get_ip(process)
-    fab.local('ssh -A -t -o StrictHostKeyChecking=no -i "%s" %s@%s ssh -A -t -o StrictHostKeyChecking=no root@%s %s' % (
+    fab.local('ssh -A -t -o StrictHostKeyChecking=no -i "%s" %s@%s sshpass -p root ssh -A -t -o StrictHostKeyChecking=no root@%s %s' % (
         env.key_filename, env.user, env.host, ip, cmd))
 
 @task
