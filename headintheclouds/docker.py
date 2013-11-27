@@ -77,6 +77,7 @@ def setup():
     sudo('apt-get update')
     sudo('apt-get -y install linux-image-extra-virtual')
     sudo('apt-get -y install lxc-docker')
+    sudo('apt-get -y install sshpass')
 
     sudo('reboot')
 
