@@ -96,7 +96,7 @@ def run(image, cmd=None, name=None, ports=None, **kwargs):
     if cmd:
         parts += [cmd]
     result = sudo(' '.join(parts))
-    process = result.strip().split('\n')[-1]
+    process = result.strip().split('\r\x1b[13B')[-1] #todo fix this!
 
     if ports:
         ports = ports.split(',')
