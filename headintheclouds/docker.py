@@ -5,11 +5,11 @@ import simplejson as json
 import fabric.contrib.files
 import fabric.api as fab
 import fabric.context_managers
-from fabric.api import sudo, env # cause i'm lazy
+from fabric.api import sudo, env, abort # cause i'm lazy
 from tasks import task
 from util import autodoc
 
-def inspect(process):
+def get_metadata(process):
     with fab.hide('everything'):
         result = sudo('docker inspect %s' % process)
     if result.failed:
@@ -17,7 +17,7 @@ def inspect(process):
     return json.loads(result)
 
 def get_ip(process):
-    info = inspect(process)
+    info = get_metadata(process)
     ip = info[0]['NetworkSettings']['IPAddress']
     return ip
 
@@ -41,19 +41,24 @@ def ps():
 @task
 @fab.parallel
 @autodoc
-def bind(process, port):
+def bind(process, port, bound_port=None):
+    if bound_port is None:
+        bound_port = port
     ip = get_ip(process)
-    unbind(port)
-    sudo('iptables -t nat -A DOCKER -p tcp --dport %s -j DNAT --to-destination %s:%s' % (port, ip, port))
+    unbind(port, bound_port)
+    sudo('iptables -t nat -A DOCKER -p tcp --dport %s -j DNAT --to-destination %s:%s' % (bound_port, ip, port))
 
 @task
 @fab.parallel
 @autodoc
-def unbind(port):
+def unbind(port, bound_port=None):
+    if bound_port is None:
+        bound_port = port
+    
     with fab.hide('everything'):
         rules = sudo('iptables -t nat -S')
     for rule in rules.split('\r\n'):
-        if re.search('^-A DOCKER -p tcp -m tcp --dport %s' % port, rule):
+        if re.search('^-A DOCKER -p tcp -m tcp --dport %s -j DNAT --to-destination [^:]+:%s' % (bound_port, port), rule):
             undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
             sudo('iptables -t nat %s' % undo_rule)
 
@@ -75,16 +80,30 @@ def setup():
     sudo('sh -c "wget -qO- https://get.docker.io/gpg | apt-key add -"')
     sudo('sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
     sudo('apt-get update')
-    sudo('apt-get -y install linux-image-extra-virtual')
-    sudo('apt-get -y install lxc-docker')
+    sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install linux-image-extra-virtual')
+    sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install lxc-docker')
     sudo('apt-get -y install sshpass')
 
+    # TODO: do some check to see if we really need a reboot here
     sudo('reboot')
 
 @task
 @fab.parallel
 @autodoc
-def run(image, cmd=None, name=None, ports=None, **kwargs):
+def run(image, name=None, cmd=None, ports=None, bound_ports=None, **kwargs):
+
+    if ports and not name:
+        abort('The ports flag currently only works if you specify a process name')
+
+    if ports:
+        ports = ports.split(',')
+        if bound_ports:
+            bound_ports = bound_ports.split(',')
+            if len(ports) != len(bound_ports):
+                abort('bound_ports need to be the same length as ports')
+        else:
+            bound_ports = ports
+
     setup()
 
     parts = ['docker', 'run', '-d']
@@ -95,17 +114,24 @@ def run(image, cmd=None, name=None, ports=None, **kwargs):
     parts += [image]
     if cmd:
         parts += [cmd]
-    result = sudo(' '.join(parts))
-    process = result.strip().split('\r\x1b[13B')[-1] #todo fix this!
+    run_cmd = ' '.join(parts)
+    sudo(run_cmd)
 
     if ports:
-        ports = ports.split(',')
-        for port in ports:
+        for port, bound_port in zip(ports, bound_ports):
             port = port.strip()
-            bind(process, port)
+            bound_port = bound_port.strip()
+            bind(name, port, bound_port)
 
 @task
 @fab.parallel
 @autodoc
-def kill(process):
+def kill(process, rm=True):
     sudo('docker kill %s' % process)
+    if rm:
+        sudo('docker rm %s' % process)
+
+@task
+@autodoc
+def inspect(process):
+    sudo('docker inspect %s' % process)

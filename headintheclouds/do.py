@@ -16,7 +16,7 @@ from util import cached, recache, uncache, autodoc
 @autodoc
 def create(role='idle', size='512MB', count=1):
 
-    image = 'Ubuntu 13.04 x64'
+    image = 'Ubuntu 12.04 x64'
     region = 'New York 1'
 
     size_id = _get_size_id(size)

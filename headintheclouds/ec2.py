@@ -105,13 +105,17 @@ def spot(role='idle',
          ubuntu_version='12.04',
          prefer_ebs=False,
          placement='us-east-1b',
-         security_group='default'):
+         security_group='default',
+         image=None):
 
     count = int(count)
     price = float(price)
     prefer_ebs = str(prefer_ebs).lower() == 'true'
 
-    image_id = _get_image_id_for_size(size, ubuntu_version, prefer_ebs)
+    if image:
+        image_id = image
+    else:
+        image_id = _get_image_id_for_size(size, ubuntu_version, prefer_ebs)
 
     puts('Creating spot requests for %d %s instance%s at $%.3f' % (count, size, 's' if count > 1 else '', price))
     requests = _ec2().request_spot_instances(
@@ -273,7 +277,7 @@ def _get_image_id_for_size(size, ubuntu_version, prefer_ebs=False):
         ('13.10', 'instance'): 'ami-271a484e',
     }
 
-    if size in ['cc2.8xlarge', 'cr1.8xlarge']:
+    if size in ['cc2.8xlarge', 'cr1.8xlarge', 'cg1.4xlarge', 'g2.2xlarge']:
         root_store = 'hvm'
     elif size in ['t1.micro']:
         root_store = 'ebs'

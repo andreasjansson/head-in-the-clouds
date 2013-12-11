@@ -137,6 +137,7 @@ try:
     import pyfscache
     Cache = FSCache
 except ImportError:
+    print 'pyfscache not found, not using cache'
     Cache = NoneCache
 
 def cache():
