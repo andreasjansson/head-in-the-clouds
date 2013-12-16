@@ -6,8 +6,10 @@ import fabric.contrib.files
 import fabric.api as fab
 import fabric.context_managers
 from fabric.api import sudo, env, abort # cause i'm lazy
-from tasks import task
-from util import autodoc
+from headintheclouds.tasks import task
+from headintheclouds.util import autodoc
+import collections
+from StringIO import StringIO
 
 def get_metadata(process):
     with fab.hide('everything'):
@@ -130,6 +132,56 @@ def kill(process, rm=True):
     sudo('docker kill %s' % process)
     if rm:
         sudo('docker rm %s' % process)
+
+@task
+@fab.parallel
+@autodoc
+def upstart(image, name=None, cmd='', respawn=True, n_instances=1, start=True, **kwargs):
+    n_instances = int(n_instances)
+    assert n_instances > 0
+    respawn = str(respawn).lower() == 'true'
+
+    upstart_template = '''
+%(instances_stanza)s
+
+script
+    docker run %(env_vars)s -rm %(image)s -name %(name)s %(cmd)s
+end script
+
+%(respawn_stanza)s
+'''
+
+    if not name:
+        name = image.split('/')[-1].split('.')[0]
+
+    args = collections.defaultdict(str)
+    args['image'] = image
+    args['name'] = name
+    if n_instances > 1:
+        args['instances_stanza'] = 'instance $N'
+        args['name'] += '-$N'
+    if respawn:
+        args['respawn_stanza'] = 'respawn'
+    if cmd:
+        args['cmd'] = cmd
+    if kwargs:
+        for key, value in kwargs.items():
+            args['env_vars'] += ('-e %s=%s' % (key, value))
+
+    upstart_script = upstart_template % args
+    fab.put(StringIO(upstart_script), '/etc/init/%s.conf' % name, use_sudo=True)
+
+    if start:
+        if n_instances > 1:
+            for i in range(n_instances):
+                sudo('start %s N=%d' % (name, i))
+        else:
+            sudo('start %s' % name)
+
+@task
+@autodoc
+def pull(image):
+    sudo('docker pull %s' % image)
 
 @task
 @autodoc

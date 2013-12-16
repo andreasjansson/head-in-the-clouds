@@ -7,7 +7,6 @@ from collections import defaultdict
 import uuid
 import mimetypes
 import urlparse
-import docker
 
 from fabric.api import parallel, env, sudo, settings, local, runs_once, run, abort, put, hide
 import fabric.api
@@ -39,6 +38,11 @@ once_per_provider('nodes')
 @parallel
 def terminate():
     _provider().terminate()
+
+@task
+@parallel
+def reboot():
+    _provider().reboot()
 
 @task
 @parallel

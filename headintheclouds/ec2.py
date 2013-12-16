@@ -182,6 +182,13 @@ def terminate():
     uncache(_get_all_nodes)
 
 @task
+@parallel
+def reboot():
+    instance_id = _host_node()['id']
+    puts('Rebooting EC2 instance %s' % instance_id)
+    _ec2().reboot_instances([instance_id])
+
+@task
 @runs_once
 def nodes():
     nodes = recache(_get_all_nodes)
