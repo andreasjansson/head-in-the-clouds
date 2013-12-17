@@ -145,7 +145,7 @@ def upstart(image, name=None, cmd='', respawn=True, n_instances=1, start=True, *
 %(instances_stanza)s
 
 script
-    docker run %(env_vars)s -rm %(image)s -name %(name)s %(cmd)s
+    docker run %(env_vars)s -rm -name %(name)s %(image)s %(cmd)s
 end script
 
 %(respawn_stanza)s
