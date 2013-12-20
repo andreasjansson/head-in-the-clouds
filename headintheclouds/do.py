@@ -98,7 +98,6 @@ def _get_all_nodes():
         node = node.to_json()
         node['region'] = flip_dict(_get_regions())[node['region_id']]
         node['size'] = flip_dict(_get_sizes())[node['size_id']]
-        node['image'] = flip_dict(_get_images())[node['image_id']]
         node['name'] = re.sub('^%s' % env.name_prefix, '', node['name'])
         node['role'] = re.sub('^(.+)$', r'\1', node['name'])
 #        node['index'] = int(re.sub('^.+-([0-9]+)$',r'\1', node['name']))
@@ -106,7 +105,7 @@ def _get_all_nodes():
         return node
 
     nodes = [format_node(x) for x in _do().show_active_droplets()
-                if x.name.startswith(env.name_prefix)]
+             if x.name.startswith(env.name_prefix)]
     return nodes
 
 @cached
