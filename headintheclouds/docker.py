@@ -2,12 +2,13 @@ import re
 import os
 import contextlib
 import simplejson as json
+import dateutil.parser
 import fabric.contrib.files
 import fabric.api as fab
 import fabric.context_managers
 from fabric.api import sudo, env, abort # cause i'm lazy
 from headintheclouds.tasks import task
-from headintheclouds.util import autodoc
+from headintheclouds.util import autodoc, print_table
 import collections
 from StringIO import StringIO
 
@@ -29,6 +30,30 @@ def inside(process):
                                             host=ip, host_string='root@%s' % ip, user='root',
                                             key_filename=None, password='root', no_keys=True, allow_agent=False)
 
+def get_container_ids():
+    container_ids = []
+    with fab.hide('everything'):
+        output = sudo('docker ps')
+    for line in output.split('\r\n')[1:]:
+        id = line.split(' ', 1)[0]
+        container_ids.append(id)
+    return container_ids
+
+def get_bound_ports(ip, ports):
+    with fab.hide('everything'):
+        rules = sudo('iptables -t nat -S')
+    bound_ports = []
+    for port in ports:
+        found_port = False
+        for rule in rules.split('\r\n'):
+            match = re.search('^-A DOCKER -p tcp -m tcp --dport ([0-9]+) -j DNAT --to-destination %s+:%s' % (ip, port), rule)
+            if match:
+                bound_ports.append((port, match.group(1)))
+                found_port = True
+        if not found_port:
+            bound_ports.append((port, None))
+    return bound_ports
+
 @task
 def ssh(process, cmd=''):
     ip = get_ip(process)
@@ -38,7 +63,24 @@ def ssh(process, cmd=''):
 @task
 @autodoc
 def ps():
-    sudo('docker ps')
+    container_ids = get_container_ids()
+    processes = []
+    for id in container_ids:
+        metadata = get_metadata(id)[0]
+        created = dateutil.parser.parse(metadata['Created'])
+        name = metadata['Name'][1:]
+        ip = metadata['NetworkSettings']['IPAddress']
+        ports = [k.split('/')[0] for k in metadata['NetworkSettings']['Ports']]
+        bound_ports = get_bound_ports(ip, ports)
+        image = metadata['Config']['Image']
+        processes.append({
+            'Created': created.strftime('%Y-%m-%d %H:%M:%S'),
+            'Name': name,
+            'IP': ip,
+            'Ports': ', '.join(['%s -> %s' % (fr, to) for fr, to in bound_ports]),
+            'Image': image,
+        })
+    print_table(processes, ['Name', 'IP', 'Ports', 'Created', 'Image'])
 
 @task
 @fab.parallel
@@ -67,7 +109,7 @@ def unbind(port, bound_port=None):
 @task
 @fab.parallel
 @autodoc
-def setup():
+def setup(directory=None, reboot=True):
     # a bit hacky
     if os.path.exists('dot_dockercfg') and not fabric.contrib.files.exists('~/.dockercfg'):
         fab.put('dot_dockercfg', '~/.dockercfg')
@@ -86,8 +128,16 @@ def setup():
     sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install lxc-docker')
     sudo('apt-get -y install sshpass')
 
-    # TODO: do some check to see if we really need a reboot here
-    sudo('reboot')
+    if directory is not None:
+        sudo('stop docker')
+        parent_dir = '/'.join(directory.split('/')[:-1])
+        sudo('mkdir -p "%s"' % parent_dir)
+        sudo('mv /var/lib/docker "%s"' % directory)
+        sudo('ln -s "%s" /var/lib/docker' % directory)
+        sudo('start docker')
+    
+    if reboot:
+        sudo('reboot')
 
 @task
 @fab.parallel
