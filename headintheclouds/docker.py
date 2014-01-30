@@ -12,48 +12,6 @@ from headintheclouds.util import autodoc, print_table
 import collections
 from StringIO import StringIO
 
-def get_metadata(process):
-    with fab.hide('everything'):
-        result = sudo('docker inspect %s' % process)
-    if result.failed:
-        return None
-    return json.loads(result)
-
-def get_ip(process):
-    info = get_metadata(process)
-    ip = info[0]['NetworkSettings']['IPAddress']
-    return ip
-
-def inside(process):
-    ip = get_ip(process)
-    return fabric.context_managers.settings(gateway='%s@%s:%s' % (env.user, env.host, env.port),
-                                            host=ip, host_string='root@%s' % ip, user='root',
-                                            key_filename=None, password='root', no_keys=True, allow_agent=False)
-
-def get_container_ids():
-    container_ids = []
-    with fab.hide('everything'):
-        output = sudo('docker ps')
-    for line in output.split('\r\n')[1:]:
-        id = line.split(' ', 1)[0]
-        container_ids.append(id)
-    return container_ids
-
-def get_bound_ports(ip, ports):
-    with fab.hide('everything'):
-        rules = sudo('iptables -t nat -S')
-    bound_ports = []
-    for port in ports:
-        found_port = False
-        for rule in rules.split('\r\n'):
-            match = re.search('^-A DOCKER -p tcp -m tcp --dport ([0-9]+) -j DNAT --to-destination %s+:%s' % (ip, port), rule)
-            if match:
-                bound_ports.append((port, match.group(1)))
-                found_port = True
-        if not found_port:
-            bound_ports.append((port, None))
-    return bound_ports
-
 @task
 def ssh(process, cmd=''):
     ip = get_ip(process)
@@ -70,14 +28,20 @@ def ps():
         created = dateutil.parser.parse(metadata['Created'])
         name = metadata['Name'][1:]
         ip = metadata['NetworkSettings']['IPAddress']
-        ports = [k.split('/')[0] for k in metadata['NetworkSettings']['Ports']]
-        bound_ports = get_bound_ports(ip, ports)
+        local_ports = set([k.split('/')[0] for k in metadata['NetworkSettings']['Ports']])
+        public_ports = get_public_ports(ip)
+        for local_port, public_port in public_ports:
+            if local_port in local_ports:
+                local_ports.remove(local_port)
+        for port in local_ports:
+            public_ports.append((port, None))
+
         image = metadata['Config']['Image']
         processes.append({
             'Created': created.strftime('%Y-%m-%d %H:%M:%S'),
             'Name': name,
             'IP': ip,
-            'Ports': ', '.join(['%s -> %s' % (fr, to) for fr, to in bound_ports]),
+            'Ports': ', '.join(['%s -> %s' % (fr, to) for fr, to in public_ports]),
             'Image': image,
         })
     print_table(processes, ['Name', 'IP', 'Ports', 'Created', 'Image'])
@@ -85,31 +49,49 @@ def ps():
 @task
 @fab.parallel
 @autodoc
-def bind(process, port, bound_port=None):
-    if bound_port is None:
-        bound_port = port
+def bind(process, port_spec1, *other_port_specs):
+    '''
+    Bind one or more ports to the container.
+
+    Usage:
+        fab docker.bind:process,port_spec1,...
+
+      where
+        process is the name of the container process
+        port_spec1,... is either a list of either single port or
+            CONTAINER_PORT-EXPOSED_PORT (hyphen-delimited) strings
+    '''
+
     ip = get_ip(process)
-    unbind(port, bound_port)
-    sudo('iptables -t nat -A DOCKER -p tcp --dport %s -j DNAT --to-destination %s:%s' % (bound_port, ip, port))
+    for port, public_port in parse_port_specs([port_spec1] + list(other_port_specs)):
+        bind_process(ip, port, public_port)
 
 @task
 @fab.parallel
 @autodoc
-def unbind(port, bound_port=None):
-    if bound_port is None:
-        bound_port = port
-    
-    with fab.hide('everything'):
-        rules = sudo('iptables -t nat -S')
-    for rule in rules.split('\r\n'):
-        if re.search('^-A DOCKER -p tcp -m tcp --dport %s -j DNAT --to-destination [^:]+:%s' % (bound_port, port), rule):
-            undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
-            sudo('iptables -t nat %s' % undo_rule)
+def unbind(process, port_spec1, *other_port_specs):
+    '''
+    Unbind one or more ports from the container.
+
+    Usage:
+        fab docker.unbind:process,port_spec1,...
+
+      where
+        process is the name of the container process
+        port_spec1,... is either a list of either single port or
+            CONTAINER_PORT-EXPOSED_PORT (hyphen-delimited) strings
+    '''
+
+    ip = get_ip(process)
+    for port, public_port in parse_port_specs([port_spec1] + list(other_port_specs)):
+        unbind_process(ip, port, public_port)
 
 @task
 @fab.parallel
 @autodoc
 def setup(directory=None, reboot=True):
+    # TODO: make this not require a reboot
+
     # a bit hacky
     if os.path.exists('dot_dockercfg') and not fabric.contrib.files.exists('~/.dockercfg'):
         fab.put('dot_dockercfg', '~/.dockercfg')
@@ -142,26 +124,38 @@ def setup(directory=None, reboot=True):
 @task
 @fab.parallel
 @autodoc
-def run(image, name=None, cmd=None, ports=None, bound_ports=None, **kwargs):
+def run(image, name=None, *port_specs, **kwargs):
+    '''
+    Run a docker container
 
-    if ports and not name:
+    Usage:
+        fab docker.run:image,name=None,cmd=None,*port_specs,**env_vars
+
+      where
+        image is the name of the image, can be either a hash or a tag,
+            e.g. ec85d8f5ea3d or quay.io/myusername/myimage
+        name is the name of the created container
+        cmd is the command to run
+        *port_specs is a list of port numbers, or PORT-EXPOSED PORT strings
+        **env_vars is a list of NAME=VALUE pairs that become part of the environment
+    '''
+
+    if port_specs and not name:
         abort('The ports flag currently only works if you specify a process name')
 
-    if ports:
-        ports = ports.split(',')
-        if bound_ports:
-            bound_ports = bound_ports.split(',')
-            if len(ports) != len(bound_ports):
-                abort('bound_ports need to be the same length as ports')
-        else:
-            bound_ports = ports
-
     setup()
+
+    if 'cmd' in kwargs:
+        cmd = kwargs['cmd']
+        del kwargs['cmd']
+    else:
+        cmd = None
+    env_vars = kwargs
 
     parts = ['docker', 'run', '-d']
     if name:
         parts += ['-name', name]
-    for key, value in kwargs.items():
+    for key, value in env_vars.items():
         parts += ['-e', '%s=%s' % (key, value)]
     parts += [image]
     if cmd:
@@ -169,16 +163,18 @@ def run(image, name=None, cmd=None, ports=None, bound_ports=None, **kwargs):
     run_cmd = ' '.join(parts)
     sudo(run_cmd)
 
-    if ports:
-        for port, bound_port in zip(ports, bound_ports):
-            port = port.strip()
-            bound_port = bound_port.strip()
-            bind(name, port, bound_port)
+    if port_specs:
+        ip = get_ip(name)
+        for port, public_port in parse_port_specs(port_specs):
+            bind_process(ip, port, public_port)
 
 @task
 @fab.parallel
 @autodoc
 def kill(process, rm=True):
+    ip = get_ip(process)
+    unbind_all(ip)
+
     sudo('docker kill %s' % process)
     if rm:
         sudo('docker rm %s' % process)
@@ -237,3 +233,72 @@ def pull(image):
 @autodoc
 def inspect(process):
     sudo('docker inspect %s' % process)
+
+
+
+def get_metadata(process):
+    with fab.hide('everything'):
+        result = sudo('docker inspect %s' % process)
+    if result.failed:
+        return None
+    return json.loads(result)
+
+def get_ip(process):
+    info = get_metadata(process)
+    ip = info[0]['NetworkSettings']['IPAddress']
+    return ip
+
+def inside(process):
+    ip = get_ip(process)
+    return fabric.context_managers.settings(gateway='%s@%s:%s' % (env.user, env.host, env.port),
+                                            host=ip, host_string='root@%s' % ip, user='root',
+                                            key_filename=None, password='root', no_keys=True, allow_agent=False)
+
+def get_container_ids():
+    container_ids = []
+    with fab.hide('everything'):
+        output = sudo('docker ps')
+    for line in output.split('\r\n')[1:]:
+        id = line.split(' ', 1)[0]
+        container_ids.append(id)
+    return container_ids
+
+def get_public_ports(ip):
+    with fab.hide('everything'):
+        rules = sudo('iptables -t nat -S')
+    public_ports = []
+    for rule in rules.split('\r\n'):
+        match = re.search('^-A DOCKER -p tcp -m tcp --dport ([0-9]+) -j DNAT --to-destination %s:([0-9]+)' % ip, rule)
+        if match:
+            public_ports.append((match.group(2), match.group(1)))
+    return public_ports
+
+def bind_process(ip, port, public_port):
+    unbind_process(ip, port, public_port)
+    sudo('iptables -t nat -A DOCKER -p tcp --dport %s -j DNAT --to-destination %s:%s' % (public_port, ip, port))
+
+def unbind_process(ip, port, public_port):
+    with fab.hide('everything'):
+        rules = sudo('iptables -t nat -S')
+    for rule in rules.split('\r\n'):
+        if re.search('^-A DOCKER -p tcp -m tcp --dport %s -j DNAT --to-destination %s:%s' % (public_port, ip, port), rule):
+            undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
+            sudo('iptables -t nat %s' % undo_rule)
+
+def parse_port_specs(port_specs):
+    parsed = []
+    for port_spec in port_specs:
+        split = port_spec.split('-')
+        if len(split) > 1:
+            port, public_port = split
+        else:
+            port = public_port = split[0]
+        port = int(port.strip())
+        public_port = int(public_port.strip())
+        parsed.append((port, public_port))
+    return parsed
+
+def unbind_all(ip):
+    ports = get_public_ports(ip)
+    for local_port, public_port in ports:
+        unbind_process(ip, local_port, public_port)
