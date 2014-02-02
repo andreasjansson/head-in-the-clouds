@@ -15,8 +15,17 @@ from StringIO import StringIO
 @task
 def ssh(process, cmd=''):
     ip = get_ip(process)
-    fab.local('ssh -A -t -o StrictHostKeyChecking=no -i "%s" %s@%s sshpass -p root ssh -A -t -o StrictHostKeyChecking=no root@%s %s' % (
-        env.key_filename, env.user, env.host, ip, cmd))
+    ssh_cmd = 'sshpass -p root ssh -A -t -o StrictHostKeyChecking=no root@%s' % ip
+    fab.local('ssh -A -t -o StrictHostKeyChecking=no -i "%s" %s@%s %s %s' % (
+        env.key_filename, env.user, env.host, ssh_cmd, cmd))
+
+@task
+def sshfs(process, remote_dir, local_dir):
+    ip = get_ip(process)
+    os.path.makedirs(local_dir)
+    fab.local('sshfs -o ssh_command="ssh -i %(key_filename)s %(user)s@%(host)s sshpass -p root ssh" root@%(docker_ip)s:"%(remote_dir)s" "%(local_dir)s"' % {
+        'key_filename': env.key_filename, 'user': env.user, 'host': env.host,
+        'docker_ip': ip, 'remote_dir': remote_dir, 'local_dir': local_dir})
 
 @task
 @autodoc
@@ -118,8 +127,8 @@ def setup(directory=None, reboot=True):
         sudo('ln -s "%s" /var/lib/docker' % directory)
         sudo('start docker')
     
-    if reboot:
-        sudo('reboot')
+#    if reboot:
+#        sudo('reboot')
 
 @task
 @fab.parallel
@@ -302,3 +311,4 @@ def unbind_all(ip):
     ports = get_public_ports(ip)
     for local_port, public_port in ports:
         unbind_process(ip, local_port, public_port)
+
