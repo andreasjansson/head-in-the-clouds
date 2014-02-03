@@ -30,7 +30,7 @@ def up(name):
     confirm_changes(servers_to_delete, servers_to_start,
                     containers_to_kill, containers_to_start)
 
-    resolve_existing(dependency_graph, servers, existing_servers, existing_containers)
+    resolve_existing(dependency_graph, servers, existing_servers)
     create_things(servers, dependency_graph)
 
 def find_existing_things():
@@ -43,6 +43,26 @@ def confirm_changes(servers_to_delete, servers_to_start,
                     containers_to_kill, containers_to_start):
     pass
 
+def resolve_existing(servers, dependency_graph, existing_servers):
+    for existing_name, existing_server in existing_servers.items():
+        dependents = dependency_graph.get_dependents((existing_name, None))
+        for (server_name, container_name), attr_is in dependents.items():
+            if container_name:
+                dependent = servers[server_name][container_name]
+            else:
+                dependent = servers[server_name]
+            for attr, i in attr_is:
+                dependent.resolve(existing_server, attr, i)
+        for existing_container_name, existing_container in existing_server.containers.items():
+            dependents = dependency_graph.get_dependents((existing_name, existing_container_name))
+            for (server_name, container_name), attr_is in dependents.items():
+                if container_name:
+                    dependent = servers[server_name].containers[container_name]
+                else:
+                    dependent = servers[server_name]
+                for attr, i in attr_is:
+                    dependent.resolve(existing_container, attr, i)
+            
 def create_things(servers, dependency_graph):
     # TODO: handle errors
 
@@ -59,8 +79,8 @@ def create_things(servers, dependency_graph):
         for thing in completed_things:
             thing.refresh()
             dependents = dependency_graph.get_dependents(
-                (thing.host.name, thing.name) if isinstance(thing, Container) else thing.name)
-            for server_name, container_name, attr_is in dependents:
+                (thing.host.name, thing.name) if isinstance(thing, Container) else (thing.name, None))
+            for (server_name, container_name), attr_is in dependents.items():
                 if container_name:
                     dependent = servers[server_name].containers[container_name]
                 else:
@@ -117,7 +137,6 @@ def parse_config_file(filename):
     else:
         templates = {}
 
-    dependency_graph = DependencyGraph()
     all_servers = {}
 
     for server_name, spec in raw.items():
@@ -131,7 +150,7 @@ def parse_config_file(filename):
 
         all_servers.update(servers)
 
-    add_dependencies(servers, dependency_graph)
+    dependency_graph = get_dependencies(servers)
     cycle_node = dependency_graph.find_cycle()
     if cycle_node:
         server, container = cycle_node
@@ -231,7 +250,9 @@ def expand_template(spec, templates, server, container=None):
             if k not in spec:
                 spec[k] = v
 
-def add_dependencies(servers, dependency_graph):
+def get_dependencies(servers):
+    dependency_graph = DependencyGraph()
+
     for server in servers.values():
         avd = lambda value, attr: add_variable_dependency(
             value, attr, servers, dependency_graph, server)
@@ -256,6 +277,8 @@ def add_dependencies(servers, dependency_graph):
 
             # need its own server to start first
             dependency_graph.add((server.name, container.name), None, (server.name, None))
+
+    return dependency_graph
 
 def add_variable_dependency(value, attr, servers, dependency_graph, server, container=None):
     # TODO: validate that it's actually possible to get the value
@@ -329,7 +352,7 @@ class Server(object):
         self.bid = bid
         self.ip = ip
         if containers is None:
-            self.containers = set()
+            self.containers = {}
         else:
             self.containers = containers
 
@@ -370,23 +393,23 @@ class Container(object):
     def resolve(self, thing, attr, i):
         if attr == 'image':
             self.image = resolve(self.image, thing, i)
-        elif attr == 'host':
+        elif attr == 'command':
             self.command = resolve(self.command, thing, i)
         elif attr.startswith('env-key:'):
-            i = int(attr.split(':')[1])
-            self.environment[i][0] = resolve(self.environment[i][0], thing, i)
+            n = int(attr.split(':')[1])
+            self.environment[n] = (resolve(self.environment[n][0], thing, i), self.environment[n][1])
         elif attr.startswith('env-value:'):
-            i = int(attr.split(':')[1])
-            self.environment[i][1] = resolve(self.environment[i][1], thing, i)
+            n = int(attr.split(':')[1])
+            self.environment[n] = (self.environment[n][0], resolve(self.environment[n][1], thing, i))
         elif attr.startswith('port-from:'):
-            i = int(attr.split(':')[1])
-            self.ports[i][0] = resolve(self.ports[i][0], thing, i)
+            n = int(attr.split(':')[1])
+            self.ports[n] = (resolve(self.ports[n][0], thing, i), self.ports[n][1])
         elif attr.startswith('port-to:'):
-            i = int(attr.split(':')[1])
-            self.ports[i][1] = resolve(self.ports[i][1], thing, i)
+            n = int(attr.split(':')[1])
+            self.ports[n] = (self.ports[n][0], resolve(self.ports[n][1], thing, i))
         elif attr.startswith('volume:'):
-            i = int(attr.split(':')[1])
-            self.volumes[i] = resolve(self.volumes[i], thing, i)
+            n = int(attr.split(':')[1])
+            self.volumes[n] = resolve(self.volumes[n], thing, i)
 
     def __repr__(self):
         return '<Container: %s (%s)>' % (self.name, self.host.name)
@@ -414,9 +437,6 @@ class DependencyGraph(object):
         self.inverse_graph[dependent].add(depends)
         if attr_i:
             self.dependent_attrs[depends][dependent].add(attr_i)
-
-    def resolve_existing(self, existing_servers, existing_containers, servers):
-        pass
 
     def get_depends(self, dependent):
         return self.inverse_graph[dependent]

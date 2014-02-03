@@ -40,24 +40,39 @@ class TestVariables(unittest.TestCase):
 
     def test_resolve_container(self):
         thing = ensemble.Container('foo', None, 'image-foo', 'cmd')
-        container = ensemble.Container('bar', None, command='a ${foo.host.containers.c1.image} b',
-                                       environment=[('${foo.host.containers.c1.image}', 'bar'),
-                                                    ('foo', '${foo.host.containers.c1.cmd}')])
+        container = ensemble.Container('bar', None, command='a ${foo.containers.c1.image} b',
+                                       environment=[('${foo.containers.c1.image}', 'bar'),
+                                                    ('foo', '${foo.containers.c1.command}')])
         container.resolve(thing, 'command', 0)
-        self.assertEquals(thing.command, 'a image-foo b')
+        self.assertEquals(container.command, 'a image-foo b')
         container.resolve(thing, 'env-key:0', 0)
-        self.assertEquals(thing.environment, [
-            ('image-foo', 'bar'), ('foo', '${foo.host.containers.c1.cmd}')])
-        container.resolve(thing, 'env-value:0', 0)
-        self.assertEquals(thing.environment, [('image-foo', 'bar'), ('foo', 'cmd')])
+        self.assertEquals(container.environment, [
+            ('image-foo', 'bar'), ('foo', '${foo.containers.c1.command}')])
+        container.resolve(thing, 'env-value:1', 0)
+        self.assertEquals(container.environment, [('image-foo', 'bar'), ('foo', 'cmd')])
 
     def test_resolve_existing(self):
         existing_servers = {
             's1': ensemble.Server(name='s1', type='blah'),
-            's2': ensemble.Server(name='s2', provider='foo'),
+            's2': ensemble.Server(name='s2', provider='foo', containers={
+                'c5': ensemble.Container('c5', None, command='bbbbaaz')
+            }),
         }
+
+        servers = {
+            's3': ensemble.Server(name='s3', provider='p-${s1.type}'),
+            's4': ensemble.Server(name='s4', provider='baz', containers={
+                'c1': ensemble.Container('c1', None, image='${s2.containers.c5.command}')
+            }),
+        }
+
         graph = ensemble.DependencyGraph()
-#        graph.add('
+        graph.add(('s3', None), ('provider', 0), ('s1', None))
+        graph.add(('s4', 'c1'), ('image', 0), ('s2', 'c5'))
+
+        ensemble.resolve_existing(servers, graph, existing_servers)
+        self.assertEquals(servers['s3'].provider, 'p-blah')
+        self.assertEquals(servers['s4'].containers['c1'].image, 'bbbbaaz')
 
 class TestDependencyGraph(unittest.TestCase):
 
