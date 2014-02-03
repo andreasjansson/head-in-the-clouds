@@ -51,13 +51,6 @@ class TestVariables(unittest.TestCase):
         container.resolve(thing, 'env-value:0', 0)
         self.assertEquals(thing.environment, [('image-foo', 'bar'), ('foo', 'cmd')])
 
-    def test_resolve_container(self):
-        server = ensemble.Server('foo', 'ec2', 'm1.small', 0.3, '123.123.123.123')
-        self.assertEquals(ensemble.resolve('${host.ip}', server, 0), '123.123.123.123')
-        self.assertEquals(ensemble.resolve('$foo${host.type}', server, 1), '$foom1.small')
-        self.assertEquals(ensemble.resolve('${host.provider} $foo', server, 0), 'ec2 $foo')
-        self.assertEquals(ensemble.resolve('${host.bid}', server, 0), '0.3')
-
     def test_resolve_existing(self):
         existing_servers = {
             's1': ensemble.Server(name='s1', type='blah'),
