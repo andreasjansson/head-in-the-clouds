@@ -152,8 +152,6 @@ def run(image, name=None, *port_specs, **kwargs):
     if port_specs and not name:
         abort('The ports flag currently only works if you specify a process name')
 
-    setup()
-
     if 'cmd' in kwargs:
         cmd = kwargs['cmd']
         del kwargs['cmd']
@@ -161,21 +159,11 @@ def run(image, name=None, *port_specs, **kwargs):
         cmd = None
     env_vars = kwargs
 
-    parts = ['docker', 'run', '-d']
-    if name:
-        parts += ['-name', name]
-    for key, value in env_vars.items():
-        parts += ['-e', '%s=%s' % (key, value)]
-    parts += [image]
-    if cmd:
-        parts += [cmd]
-    run_cmd = ' '.join(parts)
-    sudo(run_cmd)
-
-    if port_specs:
-        ip = get_ip(name)
-        for port, public_port in parse_port_specs(port_specs):
-            bind_process(ip, port, public_port)
+    run_container(image=image,
+                  name=name,
+                  command=cmd,
+                  ports=parse_port_specs(port_specs),
+                  environment=env_vars)
 
 @task
 @fab.parallel
@@ -244,6 +232,31 @@ def inspect(process):
     sudo('docker inspect %s' % process)
 
 
+
+def run_container(image, name=None, command=None, environment=None,
+                  ports=None, volumes=None):
+
+    setup()
+
+    parts = ['docker', 'run', '-d']
+    if name:
+        parts += ['-name', name]
+    if volumes:
+        for volume in volumes:
+            parts += ['-volume', volume]
+    if environment:
+        for key, value in environment.items():
+            parts += ['-e', '%s=%s' % (key, value)]
+    parts += [image]
+    if command:
+        parts += [command]
+    command_line = ' '.join(parts)
+    sudo(command_line)
+
+    if ports:
+        ip = get_ip(name)
+        for port, public_port in parse_port_specs(ports):
+            bind_process(ip, port, public_port)
 
 def get_metadata(process):
     with fab.hide('everything'):

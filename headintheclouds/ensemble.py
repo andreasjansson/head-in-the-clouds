@@ -8,6 +8,7 @@ from fabric.api import * # pylint: disable=W0614,W0401
 from headintheclouds import ec2, do, docker
 
 @task
+@runs_once
 def up(name, filename=None):
     if filename is None:
         filename = '%s.yml' % name
@@ -56,7 +57,7 @@ def resolve_existing(servers, dependency_graph, existing_servers):
             for attr, i in attr_is:
                 dependent.resolve(existing_thing, attr, i)
 
-    for existing_server in existing_servers.values():
+    for existing_server in existing_servers:
         resolve_thing(existing_server)
         for existing_container in existing_server.containers.values():
             resolve_thing(existing_container)
@@ -98,7 +99,7 @@ def make_processes(servers, dependency_graph, queue):
     for server in servers.values():
         depends = dependency_graph.get_depends(server.get_thing_name())
         if len(depends) == 0:
-            resolved_servers[(server.provider, server.type, server.bid)].append(server)
+            resolved_servers[(server.provider, server.type, server.bid, server.ip)].append(server)
         else:
             processes[server] = UpProcess(server, len(depends), queue)
         for container in server.containers.values():
@@ -106,8 +107,11 @@ def make_processes(servers, dependency_graph, queue):
             processes[container] = UpProcess(container, len(depends), queue)
 
     for servers in resolved_servers.values():
-        server_group = ServerCreateGroup(servers)
-        processes[server_group] = UpProcess(server_group, 0, queue)
+        if len(servers) > 1:
+            server_group = ServerCreateGroup(servers)
+            processes[server_group] = UpProcess(server_group, 0, queue)
+        else:
+            processes[server] = UpProcess(server, 0, queue)
 
     return processes
 
@@ -139,29 +143,40 @@ def parse_config(config):
 
     all_servers = {}
 
-    for server_name, spec in config.items():
-        servers = parse_server(server_name, spec, templates)
+    for server_name, server_spec in config.items():
+        try:
+            servers = parse_server(server_name, server_spec, templates)
+        except ConfigException, e:
+            raise ConfigException(e.message, server_name)
 
-        if 'containers' in spec:
+        if 'containers' in server_spec:
             for server in servers.values():
-                server.containers = parse_containers(
-                    spec['containers'], server, templates, server_name)
+                server.containers = {}
+                for container_name, container_spec in server_spec['containers'].items():
+                    try:
+                        containers = parse_container(
+                            container_name, container_spec, server, templates)
+                    except ConfigException, e:
+                        raise ConfigException(e.message, server_name, container_name)
+                    server.containers.update(containers)
 
         all_servers.update(servers)
 
     dependency_graph = get_dependencies(servers)
     cycle_node = dependency_graph.find_cycle()
     if cycle_node:
-        server, container = cycle_node
-        raise ConfigException('Cycle detected', server.name, container.name)
+        raise ConfigException('Cycle detected')
 
     return all_servers, dependency_graph
 
 def parse_server(server_name, spec, templates):
-    expand_template(spec, templates, server_name)
+    expand_template(spec, templates)
     servers = {}
     
-    valid_fields = set(['$count', 'containers'])
+    valid_fields = set(['$count', 'containers']) | set(Server.fields)
+    if set(spec) - valid_fields:
+        raise ConfigException('Invalid fields' % (
+            ', '.join(set(spec) - valid_fields)))
 
     count = spec.get('$count', 1)
     for i in range(count):
@@ -170,81 +185,51 @@ def parse_server(server_name, spec, templates):
         else:
             server = Server(server_name)
 
-        if 'provider' in spec:
-            valid_fields |= set(['provider', 'type', 'bid'])
+        for field, value_parser in Server.fields.items():
+            if field in spec:
+                value = spec[field]
+                value = value_parser(value)
+                server.__dict__[field] = value
 
-            server.provider = spec['provider']
-            if 'type' not in spec:
-                raise ConfigException('"type" missing', server_name)
-            server.type = spec['type']
-            if 'bid' in spec:
-                server.bid = spec['bid']
-                valid_fields.add('bid')
-
-        elif 'ip' in spec:
-            if count != 1:
-                raise ConfigException('IP-based servers must be singletons', server_name)
-
-            server.ip = spec['ip']
-            valid_fields.add('ip')
-        else:
-            raise ConfigException('Missing "provider" or "ip"', server_name)
-
-        if set(spec) - valid_fields:
-            raise ConfigException('Invalid fields' % (
-                ', '.join(set(spec) - valid_fields)), server_name)
+        server.validate()
 
         servers[server.name] = server
 
     return servers
 
-def parse_containers(specs, server, templates, server_name):
+def parse_container(container_name, spec, server, templates):
     containers = {}
+    expand_template(spec, templates)
 
-    for container_name, spec in specs.items():
-        expand_template(spec, templates, server_name, container_name)
+    valid_fields = set(['$count']) | set(Container.fields)
+    if set(spec) - valid_fields:
+        raise ConfigException(
+            'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
 
-        valid_fields = set(['$count', 'image', 'environment', 'command',
-                            'ports', 'volumes'])
-        if set(spec) - valid_fields:
-            raise ConfigException(
-                'Invalid fields: %s' %
-                ', '.join(set(spec) - valid_fields), server_name, container_name)
+    count = spec.get('$count', 1)
+    for i in range(count):
+        if count > 1:
+            container = Container('%s-%d' % (container_name, i), server)
+        else:
+            container = Container(container_name, server)
 
-        count = spec.get('$count', 1)
-        for i in range(count):
-            if count > 1:
-                container = Container('%s-%d' % (container_name, i), server)
-            else:
-                container = Container(container_name, server)
+        for field, value_parser in Container.fields.items():
+            if field in spec:
+                value = spec[field]
+                value = value_parser(value)
+                container.__dict__[field] = value
 
-            if 'image' not in spec:
-                raise ConfigException('"image" missing', server_name, container_name)
-            container.image = spec['image']
-            container.command = spec.get('command', None)
-            container.volumes = spec.get('volumes', [])
-            if 'environment' in spec:
-                container.environment = [list(x) for x in spec.environment.items()]
-
-            for port_spec in spec.get('ports', []):
-                split = str(port_spec).split(':', 2)
-                if len(split) == 1:
-                    fr = to = split[0]
-                else:
-                    fr, to = split
-                container.ports.append((fr, to))
-
-            containers[container.name] = container
+        containers[container.name] = container
 
     return containers
 
-def expand_template(spec, templates, server, container=None):
+def expand_template(spec, templates):
     if '$template' in spec:
         template = spec['$template']
         del spec['$template']
 
         if template not in templates:
-            raise ConfigException('Missing template: %s' % template, server, container)
+            raise ConfigException('Missing template: %s' % template)
 
         for k, v in templates[template].items():
             if k not in spec:
@@ -280,7 +265,7 @@ def add_variable_dependency(value, attr, dependency_graph, server, container=Non
         if parts[1] == 'containers':
             if not container:
                 raise ConfigException(
-                    'Server to container dependencies are currently unsupported', server.name)
+                    'Server to container dependencies are currently unsupported')
             depends_container = parts[2]
         else:
             depends_container = None
@@ -377,17 +362,104 @@ class Thing(object):
         new_value = resolve(get_field_value(self, attr), thing, i)
         update_field(self, attr, new_value)
 
+def parse_string(value):
+    if not isinstance(value, basestring):
+        raise ConfigException('Value is not a string: "%s"' % value)
+    return value
+
+def parse_provider(value):
+    known_providers = ['ec2', 'digitalocean']
+    if value not in known_providers:
+        raise ConfigException('Invalid provider: "%s", valid providers are %s' %
+                              (value, known_providers))
+    return value
+
+def parse_float(value):
+    try:
+        return float(value)
+    except ValueError:
+        raise ConfigException('Value is not a float: "%s"' % value)
+
+def parse_list(value):
+    if not isinstance(value, list):
+        raise ConfigException('Value is not a list: "%s"' % value)
+    return value
+
+def parse_ports(value):
+    error = ConfigException(
+        '"ports" should be a list of colon-separated integers: %s' % value)
+    if not isinstance(value, list):
+        raise error
+    ports = []
+    for x in value:
+        split = x.split(':')
+        if len(split) == 1:
+            fr = to = split[0]
+        elif len(split) == 2:
+            fr, to = split
+        else:
+            raise error
+        try:
+            fr = int(fr)
+            to = int(to)
+        except ValueError:
+            raise error
+        ports.append([fr, to])
+    return ports
+
+def parse_environment(value):
+    if not isinstance(value, dict):
+        raise ConfigException(
+            '"environment" should be a dictionary: %s' % value)
+    return [list(x) for x in value.items()]
+
+def server_provider(provider):
+    if provider == 'ec2':
+        return ec2
+    elif provider == 'digitalocean':
+        return do
+    elif provider is None:
+        return SingleServer()
+
+def host_settings(server):
+    if server.ip not in env.hosts:
+        env.hosts.append(server.ip)
+    return settings(host=server.ip, **server_provider(server.provider).settings)
+
+
+class SingleServer(object):
+
+    def create_server(self):
+        pass
+
+    def refresh_ip(self, server):
+        return server.ip, server.internal_ip
+
 class Server(Thing):
 
-    fields = ['provider', 'type', 'bid', 'ip']
-
-    def __init__(self, name, provider=None, type=None, bid=None,
-                 ip=None, containers=None):
+    fields = {
+        'provider': parse_provider,
+        'type': parse_string,
+        'image': parse_string,
+        'os': parse_string,
+        'region': parse_string,
+        'bid': parse_float,
+        'internal_ip': parse_string,
+        'ip': parse_string
+    }
+    
+    def __init__(self, name, provider=None, type=None, image=None,
+                 os=None, region=None, bid=None, ip=None, internal_ip=None,
+                 containers=None):
         self.name = name
         self.provider = provider
         self.type = type
+        self.image = image
+        self.os = os
+        self.region = region
         self.bid = bid
         self.ip = ip
+        self.internal_ip = internal_ip
         if containers is None:
             self.containers = {}
         else:
@@ -403,16 +475,44 @@ class Server(Thing):
         if attr == 'ip':
             self.ip = resolve(self.ip, thing, i)
 
+    def create(self):
+        server_provider(self.provider).create_servers(
+            count=1, type=self.type, image=self.image, os=self.os,
+            region=self.region, bid=self.bid, ip=self.ip, 
+            internal_ip=self.internal_ip, names=[self.name])
+        self.post_create()
+
+    def post_create(self):
+        if self.containers:
+            self.refresh()
+            with host_settings(self):
+                docker.setup()
+
+    def refresh(self):
+        self.ip, self.internal_ip = server_provider(self.provider).refresh_ip(self)
+
     def get_thing_name(self):
         return (self.name, None)
+
+    def validate(self):
+        server_provider(self.provider).validate_create_options(
+            type=self.type, image=self.image, os=self.os, region=self.region,
+            bid=self.bid, ip=self.ip, internal_ip=self.internal_ip)
 
     def __repr__(self):
         return '<Server: %s>' % self.name
 
 class Container(Thing):
 
-    fields = ['image', 'command', 'environment', 'ports', 'volumes', 'ip']
-
+    fields = {
+        'image': parse_string,
+        'command': parse_string,
+        'environment': parse_environment,
+        'ports': parse_ports,
+        'volumes': parse_list,
+        'ip': parse_string
+    }
+    
     def __init__(self, name, host, image=None, command=None, environment=None,
                  ports=None, volumes=None, ip=None):
         self.name = name
@@ -436,8 +536,22 @@ class Container(Thing):
     def get_thing_name(self):
         return (self.host.name, self.name)
 
+    def create(self):
+        if self.host.ip is None:
+            self.host.refresh()
+
+        with host_settings(self.host):
+            docker.run_container(
+                image=self.image, name=self.name,
+                command=self.command, environment=self.environment,
+                ports=self.ports, volumes=self.volumes)
+
+    def inspect(self):
+        with host_settings(self.host):
+            self.ip = docker.get_ip(self.name)
+
     def __repr__(self):
-        return '<Container: %s (%s)>' % (self.name, self.host.name)
+        return '<Container: %s (%s)>' % (self.name, self.host.name if self.host else None)
 
 class ServerCreateGroup(object):
 
@@ -446,11 +560,19 @@ class ServerCreateGroup(object):
         assert all([s.provider == first.provider for s in servers])
         assert all([s.type == first.type for s in servers])
         assert all([s.bid == first.bid for s in servers])
+        self.servers = servers
 
         self.servers = servers
 
     def create(self):
-        pass
+        first = self.servers[0]
+        server_provider(first.provider).create_servers(
+            count=len(self.servers), type=first.type, os=first.os,
+            region=first.region, bid=first.bid, image=first.image,
+            ip=first.ip, names=[s.name for s in self.servers])
+        for server in self.servers:
+            server.post_create()
+
 
 class DependencyGraph(object):
 

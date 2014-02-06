@@ -3,6 +3,9 @@ import unittest2 as unittest
 
 from headintheclouds import ensemble
 
+ensemble.Server.__eq__ = lambda self, other: self.__dict__ == other.__dict__
+ensemble.Container.__eq__ = lambda self, other: self.__dict__ == other.__dict__
+
 class TestVariables(unittest.TestCase):
 
     def test_good_parse_variables(self):
@@ -23,15 +26,18 @@ class TestVariables(unittest.TestCase):
         self.assertRaises(ensemble.ConfigException, ensemble.parse_variables, '${aaa')
 
     def test_resolve_thing(self):
-        thing = ensemble.Server('foo', 'ec2', 'm1.small', 0.3, '123.123.123.123')
+        thing = ensemble.Server(name='foo', provider='ec2', type='m1.small',
+                                bid=0.3, ip='123.123.123.123')
         self.assertEquals(ensemble.resolve('${host.ip}', thing, 0), '123.123.123.123')
         self.assertEquals(ensemble.resolve('$foo${host.type}', thing, 1), '$foom1.small')
         self.assertEquals(ensemble.resolve('${host.provider} $foo', thing, 0), 'ec2 $foo')
         self.assertEquals(ensemble.resolve('${host.bid}', thing, 0), '0.3')
 
     def test_resolve_server(self):
-        thing = ensemble.Server('foo', 'ec2', 'm1.small', 0.3, '123.123.123.123')
-        server = ensemble.Server('bar', '${foo.provider}', '${foo.ip} ${foo.bid} def')
+        thing = ensemble.Server(name='foo', provider='ec2',
+                                type='m1.small', bid=0.3, ip='123.123.123.123')
+        server = ensemble.Server(name='bar', provider='${foo.provider}',
+                                 type='${foo.ip} ${foo.bid} def')
         server.resolve(thing, 'provider', 0)
         self.assertEquals(server.provider, 'ec2')
         server.resolve(thing, 'type', 1)
@@ -40,8 +46,9 @@ class TestVariables(unittest.TestCase):
         self.assertEquals(server.type, '123.123.123.123 0.3 def')
 
     def test_resolve_container(self):
-        thing = ensemble.Container('foo', None, 'image-foo', 'cmd')
-        container = ensemble.Container('bar', None, command='a ${foo.containers.c1.image} b',
+        thing = ensemble.Container(name='foo', host=None, image='image-foo', command='cmd')
+        container = ensemble.Container(name='bar', host=None,
+                                       command='a ${foo.containers.c1.image} b',
                                        environment=[['${foo.containers.c1.image}', 'bar'],
                                                     ['foo', '${foo.containers.c1.command}']])
         container.resolve(thing, 'command', 0)
@@ -90,13 +97,13 @@ class TestVariables(unittest.TestCase):
             ('bar', 'environment:0:1'),
             ('baz', 'environment:1:0'),
             ('qux', 'environment:1:1'),
+            ('vol1', 'volumes:0'),
+            ('vol2', 'volumes:1'),
+            ('vol3', 'volumes:2'),
             (80, 'ports:0:0'),
             (80, 'ports:0:1'),
             (1000, 'ports:1:0'),
             (1001, 'ports:1:1'),
-            ('vol1', 'volumes:0'),
-            ('vol2', 'volumes:1'),
-            ('vol3', 'volumes:2'),
         ]
         self.assertEquals(list(ensemble.all_field_attrs(container)), expected)
 
@@ -146,7 +153,7 @@ class TestExpandTemplate(unittest.TestCase):
                 'bar': '456',
             }
         }
-        ensemble.expand_template(config, templates, None)
+        ensemble.expand_template(config, templates)
         self.assertEquals(config, expected)
 
     def test_overwrite(self):
@@ -169,7 +176,7 @@ class TestExpandTemplate(unittest.TestCase):
             'baz': 'qux',
             'bar': '456',
         }
-        ensemble.expand_template(config, templates, None)
+        ensemble.expand_template(config, templates)
         self.assertEquals(config, expected)
 
     def test_missing_template(self):
@@ -184,7 +191,83 @@ class TestExpandTemplate(unittest.TestCase):
             },
         }
         self.assertRaises(ensemble.ConfigException, ensemble.expand_template,
-                          config, templates, None)
+                          config, templates)
+
+class TestParseServer(unittest.TestCase):
+
+    def test_fields(self):
+        server_name = 'serv'
+        config = {
+            'provider': 'ec2',
+            'type': 'm1.large',
+            'image': 'foobar',
+            'os': 'ubuntu',
+            'region': 'us-east',
+            'bid': 0.2,
+            'internal_ip': '10.0.0.1',
+            'ip': '50.0.0.1',
+        }
+        expected = {
+            server_name: ensemble.Server(
+                name=server_name,
+                provider='ec2',
+                type='m1.large',
+                image='foobar',
+                os='ubuntu',
+                region='us-east',
+                bid=0.2,
+                internal_ip='10.0.0.1',
+                ip='50.0.0.1',
+            )
+        }
+        self.assertEquals(ensemble.parse_server(server_name, config, {}),
+                          expected)
+
+class TestParseContainer(unittest.TestCase):
+
+    def test_fields(self):
+        container_name = 'cont'
+        server = ensemble.Server('s1')
+        config = {
+            'image': 'foo',
+            'command': 'bar',
+            'environment': {
+                'FOO': 123,
+                'BAR': 'BAZ',
+            },
+            'ports': [
+                '80',
+                '100:200',
+            ],
+            'volumes': [
+                '/tmp',
+                '/var/lib',
+            ],
+            'ip': '172.20.0.2',
+        }
+        expected = {
+            container_name: ensemble.Container(
+                name=container_name,
+                host=server,
+                image='foo',
+                command='bar',
+                environment=[
+                    ['FOO', 123],
+                    ['BAR', 'BAZ']
+                ],
+                ports=[
+                    [80, 80],
+                    [100, 200]
+                ],
+                volumes=[
+                    '/tmp',
+                    '/var/lib'
+                ],
+                ip='172.20.0.2'
+            )
+        }
+        self.assertEquals(ensemble.parse_container(container_name, config, server, {}),
+                          expected)
 
 class TestMultiprocess(unittest.TestCase):
 

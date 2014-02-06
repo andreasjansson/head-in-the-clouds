@@ -217,6 +217,67 @@ def hostsfile():
     nodes = [n for n in _get_all_nodes() if n['status'] == 'running']
     util.print_table(nodes, ['ip_address', 'private_dns_name'])
         
+
+def create_servers(count, type=None, os=None, region=None,
+                   bid=None, image=None, ip=None, internal_ip=None, names=None):
+    assert count == len(names)
+    validate_create_options(type, os, region, bid, image, ip)
+
+    if image is None:
+        ubuntu_version = os.split(' ')[-1]
+        # TODO: allow setting things like root-store
+        image_id = _get_image_id_for_size(type, ubuntu_version, prefer_ebs=False)
+    count = int(count)
+
+    print 'Creating %d EC2 %s instances' % (count, type)
+
+    reservation = _ec2().run_instances(
+        image_id=image_id,
+        min_count=count,
+        max_count=count,
+        security_groups=['default'],
+        instance_type=type,
+        placement=region,
+        key_name=KEYPAIR_NAME,
+    )
+
+    for name, instance in zip(names, reservation.instances):
+        _set_instance_name(instance.id, name)
+
+    while any([i.state != 'running' for i in reservation.instances]):
+        print 'Waiting for instance(s) to enter running state: %s' % [i.state for i in reservation.instances]
+        # TODO: handle error
+        time.sleep(5)
+        i.update()
+
+def validate_create_options(type=None, os=None, region=None,
+                            bid=None, image=None, ip=None, internal_ip=None):
+
+    if type is not None and type not in get_node_types():
+        raise Exception('Unknown EC2 instance type: "%s"' % type)
+
+    if os is not None:
+        if not os.lower().startswith('ubuntu'):
+            raise Exception('For a non-Ubuntu OS, you need to specify an image')
+        if os.split(' ')[-1] not in [v for v, _ in OS_ROOT_STORE_AMI_MAP]:
+            raise Exception('Unknown Ubuntu version, please specify an image')
+
+    if os is None and image is None:
+        raise Exception('You need to either specify an image AMI or use a shorthand os')
+
+    # TODO: allow all regions. this is ridiculous
+    if region is not None and region != 'us-east-1b':
+        raise Exception('us-east-1b is currently the only supported region. SORRY!!')
+
+    if ip is not None or internal_ip is not None:
+        raise Exception('ip can not be specified for EC2 servers')
+
+def refresh_ip(server):
+    nodes = recache(_get_all_nodes)
+    for node in nodes:
+        if node['name'] == server.name and node['state'] == 'running':
+            return node['ip_address'], node['private_ip_address']
+
 def rename(role):
     current_node = _host_node()
     _set_instance_name(current_node['id'], role)
@@ -269,21 +330,6 @@ def _set_instance_name(instance_id, name):
     _ec2().create_tags(instance_id, {'Name': '%s%s' % (env.name_prefix, name)})
 
 def _get_image_id_for_size(size, ubuntu_version, prefer_ebs=False):
-    images = {
-        ('12.04', 'ebs'):      'ami-a73264ce',
-        ('12.04', 'hvm'):      'ami-b93264d0',
-        ('12.04', 'instance'): 'ami-ad3660c4',
-        ('12.10', 'ebs'):      'ami-2bc99d42',
-        ('12.10', 'hvm'):      'ami-2dc99d44',
-        ('12.10', 'instance'): 'ami-a9cf9bc0',
-        ('13.04', 'ebs'):      'ami-10314d79',
-        ('13.04', 'hvm'):      'ami-e1277b88',
-        ('13.04', 'instance'): 'ami-762d491f',
-        ('13.10', 'ebs'):      'ami-ad184ac4',
-        ('13.10', 'hvm'):      'ami-a1184ac8',
-        ('13.10', 'instance'): 'ami-271a484e',
-    }
-
     if size in ['cc2.8xlarge', 'cr1.8xlarge', 'cg1.4xlarge', 'g2.2xlarge']:
         root_store = 'hvm'
     elif size in ['t1.micro']:
@@ -291,7 +337,7 @@ def _get_image_id_for_size(size, ubuntu_version, prefer_ebs=False):
     else:
         root_store = 'ebs' if prefer_ebs else 'instance'
 
-    image_id = images.get((ubuntu_version, root_store))
+    image_id = OS_ROOT_STORE_AMI_MAP.get((ubuntu_version, root_store))
     if not image_id:
         abort('Unknown Ubuntu version: %s' % ubuntu_version)
 
@@ -470,3 +516,19 @@ def get_node_types():
             node_types[size] = node_type
 
     return node_types
+
+OS_ROOT_STORE_AMI_MAP = {
+    ('12.04', 'ebs'):      'ami-a73264ce',
+    ('12.04', 'hvm'):      'ami-b93264d0',
+    ('12.04', 'instance'): 'ami-ad3660c4',
+    ('12.10', 'ebs'):      'ami-2bc99d42',
+    ('12.10', 'hvm'):      'ami-2dc99d44',
+    ('12.10', 'instance'): 'ami-a9cf9bc0',
+    ('13.04', 'ebs'):      'ami-10314d79',
+    ('13.04', 'hvm'):      'ami-e1277b88',
+    ('13.04', 'instance'): 'ami-762d491f',
+    ('13.10', 'ebs'):      'ami-ad184ac4',
+    ('13.10', 'hvm'):      'ami-a1184ac8',
+    ('13.10', 'instance'): 'ami-271a484e',
+}
+
