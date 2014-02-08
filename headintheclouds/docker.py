@@ -6,28 +6,28 @@ import dateutil.parser
 import fabric.contrib.files
 import fabric.api as fab
 import fabric.context_managers
-from fabric.api import sudo, env, abort # cause i'm lazy
-from headintheclouds.tasks import task
+from fabric.api import *
+from headintheclouds import cloudtask
 from headintheclouds.util import autodoc, print_table
 import collections
 from StringIO import StringIO
 
-@task
+@cloudtask
 def ssh(process, cmd=''):
     ip = get_ip(process)
     ssh_cmd = 'sshpass -p root ssh -A -t -o StrictHostKeyChecking=no root@%s' % ip
-    fab.local('ssh -A -t -o StrictHostKeyChecking=no -i "%s" %s@%s %s %s' % (
+    local('ssh -A -t -o StrictHostKeyChecking=no -i "%s" %s@%s %s %s' % (
         env.key_filename, env.user, env.host, ssh_cmd, cmd))
 
-@task
+@cloudtask
 def sshfs(process, remote_dir, local_dir):
     ip = get_ip(process)
     os.path.makedirs(local_dir)
-    fab.local('sshfs -o ssh_command="ssh -i %(key_filename)s %(user)s@%(host)s sshpass -p root ssh" root@%(docker_ip)s:"%(remote_dir)s" "%(local_dir)s"' % {
+    local('sshfs -o ssh_command="ssh -i %(key_filename)s %(user)s@%(host)s sshpass -p root ssh" root@%(docker_ip)s:"%(remote_dir)s" "%(local_dir)s"' % {
         'key_filename': env.key_filename, 'user': env.user, 'host': env.host,
         'docker_ip': ip, 'remote_dir': remote_dir, 'local_dir': local_dir})
 
-@task
+@cloudtask
 @autodoc
 def ps():
     container_ids = get_container_ids()
@@ -55,8 +55,8 @@ def ps():
         })
     print_table(processes, ['Name', 'IP', 'Ports', 'Created', 'Image'])
 
-@task
-@fab.parallel
+@cloudtask
+@parallel
 @autodoc
 def bind(process, port_spec1, *other_port_specs):
     '''
@@ -75,8 +75,8 @@ def bind(process, port_spec1, *other_port_specs):
     for port, public_port in parse_port_specs([port_spec1] + list(other_port_specs)):
         bind_process(ip, port, public_port)
 
-@task
-@fab.parallel
+@cloudtask
+@parallel
 @autodoc
 def unbind(process, port_spec1, *other_port_specs):
     '''
@@ -95,20 +95,20 @@ def unbind(process, port_spec1, *other_port_specs):
     for port, public_port in parse_port_specs([port_spec1] + list(other_port_specs)):
         unbind_process(ip, port, public_port)
 
-@task
-@fab.parallel
+@cloudtask
+@parallel
 @autodoc
 def setup(directory=None, reboot=True):
     # TODO: make this not require a reboot
 
     # a bit hacky
     if os.path.exists('dot_dockercfg') and not fabric.contrib.files.exists('~/.dockercfg'):
-        fab.put('dot_dockercfg', '~/.dockercfg')
+        put('dot_dockercfg', '~/.dockercfg')
 
     if not fabric.contrib.files.exists('~/.ssh/id_rsa'):
         fab.run('ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa')
 
-    with contextlib.nested(fab.hide('everything'), fab.settings(warn_only=True)):
+    with contextlib.nested(hide('everything'), settings(warn_only=True)):
         if not fab.run('which docker').failed:
             return
 
@@ -130,8 +130,8 @@ def setup(directory=None, reboot=True):
 #    if reboot:
 #        sudo('reboot')
 
-@task
-@fab.parallel
+@cloudtask
+@parallel
 @autodoc
 def run(image, name=None, *port_specs, **kwargs):
     '''
@@ -165,8 +165,8 @@ def run(image, name=None, *port_specs, **kwargs):
                   ports=parse_port_specs(port_specs),
                   environment=env_vars)
 
-@task
-@fab.parallel
+@cloudtask
+@parallel
 @autodoc
 def kill(process, rm=True):
     ip = get_ip(process)
@@ -176,8 +176,8 @@ def kill(process, rm=True):
     if rm:
         sudo('docker rm %s' % process)
 
-@task
-@fab.parallel
+@cloudtask
+@parallel
 @autodoc
 def upstart(image, name=None, cmd='', respawn=True, n_instances=1, start=True, **kwargs):
     n_instances = int(n_instances)
@@ -212,7 +212,7 @@ end script
             args['env_vars'] += ('-e %s=%s' % (key, value))
 
     upstart_script = upstart_template % args
-    fab.put(StringIO(upstart_script), '/etc/init/%s.conf' % name, use_sudo=True)
+    put(StringIO(upstart_script), '/etc/init/%s.conf' % name, use_sudo=True)
 
     if start:
         if n_instances > 1:
@@ -221,12 +221,12 @@ end script
         else:
             sudo('start %s' % name)
 
-@task
+@cloudtask
 @autodoc
 def pull(image):
     sudo('docker pull %s' % image)
 
-@task
+@cloudtask
 @autodoc
 def inspect(process):
     sudo('docker inspect %s' % process)
@@ -259,7 +259,7 @@ def run_container(image, name=None, command=None, environment=None,
             bind_process(ip, port, public_port)
 
 def get_metadata(process):
-    with fab.hide('everything'):
+    with hide('everything'):
         result = sudo('docker inspect %s' % process)
     if result.failed:
         return None
@@ -278,7 +278,7 @@ def inside(process):
 
 def get_container_ids():
     container_ids = []
-    with fab.hide('everything'):
+    with hide('everything'):
         output = sudo('docker ps')
     for line in output.split('\r\n')[1:]:
         id = line.split(' ', 1)[0]
@@ -286,7 +286,7 @@ def get_container_ids():
     return container_ids
 
 def get_public_ports(ip):
-    with fab.hide('everything'):
+    with hide('everything'):
         rules = sudo('iptables -t nat -S')
     public_ports = []
     for rule in rules.split('\r\n'):
@@ -300,7 +300,7 @@ def bind_process(ip, port, public_port):
     sudo('iptables -t nat -A DOCKER -p tcp --dport %s -j DNAT --to-destination %s:%s' % (public_port, ip, port))
 
 def unbind_process(ip, port, public_port):
-    with fab.hide('everything'):
+    with hide('everything'):
         rules = sudo('iptables -t nat -S')
     for rule in rules.split('\r\n'):
         if re.search('^-A DOCKER -p tcp -m tcp --dport %s -j DNAT --to-destination %s:%s' % (public_port, ip, port), rule):

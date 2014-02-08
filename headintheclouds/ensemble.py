@@ -3,9 +3,14 @@ import yaml
 import re
 import collections
 import multiprocessing
-from fabric.api import * # pylint: disable=W0614,W0401
 
-from headintheclouds import ec2, do, docker
+from fabric.api import * # pylint: disable=W0614,W0401
+import fabric.api as fab
+
+import headintheclouds
+from headintheclouds import docker
+
+__all__ = ['up']
 
 @task
 @runs_once
@@ -57,7 +62,7 @@ def resolve_existing(servers, dependency_graph, existing_servers):
             for attr, i in attr_is:
                 dependent.resolve(existing_thing, attr, i)
 
-    for existing_server in existing_servers:
+    for existing_server in existing_servers.values():
         resolve_thing(existing_server)
         for existing_container in existing_server.containers.values():
             resolve_thing(existing_container)
@@ -99,7 +104,12 @@ def make_processes(servers, dependency_graph, queue):
     for server in servers.values():
         depends = dependency_graph.get_depends(server.get_thing_name())
         if len(depends) == 0:
-            resolved_servers[(server.provider, server.type, server.bid, server.ip)].append(server)
+            for group_server, group in resolved_servers.items():
+                if group_server.can_group_with(server):
+                    group.append(server)
+                    break
+            else:
+                resolved_servers[server].append(server)
         else:
             processes[server] = UpProcess(server, len(depends), queue)
         for container in server.containers.values():
@@ -111,6 +121,7 @@ def make_processes(servers, dependency_graph, queue):
             server_group = ServerCreateGroup(servers)
             processes[server_group] = UpProcess(server_group, 0, queue)
         else:
+            server = servers[0]
             processes[server] = UpProcess(server, 0, queue)
 
     return processes
@@ -173,23 +184,12 @@ def parse_server(server_name, spec, templates):
     expand_template(spec, templates)
     servers = {}
     
-    valid_fields = set(['$count', 'containers']) | set(Server.fields)
-    if set(spec) - valid_fields:
-        raise ConfigException('Invalid fields' % (
-            ', '.join(set(spec) - valid_fields)))
-
     count = spec.get('$count', 1)
     for i in range(count):
         if count > 1:
-            server = Server('%s-%d' % (server_name, i))
+            server = Server('%s-%d' % (server_name, i), **spec)
         else:
-            server = Server(server_name)
-
-        for field, value_parser in Server.fields.items():
-            if field in spec:
-                value = spec[field]
-                value = value_parser(value)
-                server.__dict__[field] = value
+            server = Server(server_name, **spec)
 
         server.validate()
 
@@ -316,7 +316,7 @@ def get_resolved_value(variable, thing):
 def get_variable_expression(thing, attr):
     parts = attr.split(':')
     field = parts.pop(0)
-    if field not in thing.fields:
+    if field not in thing.get_create_options():
         raise ConfigException('Invalid attribute: %s' % field)
 
     indices = []
@@ -347,7 +347,7 @@ def all_field_attrs(thing):
         else:
             return [(value, indices)]
 
-    for field in thing.fields:
+    for field in thing.get_create_options():
         if not thing.__dict__[field]:
             continue
 
@@ -422,9 +422,12 @@ def server_provider(provider):
         return SingleServer()
 
 def host_settings(server):
-    if server.ip not in env.hosts:
-        env.hosts.append(server.ip)
-    return settings(host=server.ip, **server_provider(server.provider).settings)
+    settings = {
+        'provider': server.provider,
+        'host': server.ip
+    }
+    settings.update(server_provider(server.provider).settings)
+    return fab.settings(**settings)
 
 
 class SingleServer(object):
@@ -433,53 +436,27 @@ class SingleServer(object):
         pass
 
     def refresh_ip(self, server):
-        return server.ip, server.internal_ip
+        return server.ip, server.internal_address
 
 class Server(Thing):
 
-    fields = {
-        'provider': parse_provider,
-        'type': parse_string,
-        'image': parse_string,
-        'os': parse_string,
-        'region': parse_string,
-        'bid': parse_float,
-        'internal_ip': parse_string,
-        'ip': parse_string
-    }
-    
-    def __init__(self, name, provider=None, type=None, image=None,
-                 os=None, region=None, bid=None, ip=None, internal_ip=None,
-                 containers=None):
+    def __init__(self, name, provider=None, containers=None,
+                 ip=None, internal_address=None, **kwargs):
         self.name = name
         self.provider = provider
-        self.type = type
-        self.image = image
-        self.os = os
-        self.region = region
-        self.bid = bid
         self.ip = ip
-        self.internal_ip = internal_ip
+        self.internal_address = internal_address
+        self.__dict__.update(kwargs)
         if containers is None:
             self.containers = {}
         else:
             self.containers = containers
 
-    def resolve(self, thing, attr, i):
-        if attr == 'provider':
-            self.provider = resolve(self.provider, thing, i)
-        if attr == 'type':
-            self.type = resolve(self.type, thing, i)
-        if attr == 'bid':
-            self.bid = resolve(self.bid, thing, i)
-        if attr == 'ip':
-            self.ip = resolve(self.ip, thing, i)
-
     def create(self):
-        server_provider(self.provider).create_servers(
-            count=1, type=self.type, image=self.image, os=self.os,
-            region=self.region, bid=self.bid, ip=self.ip, 
-            internal_ip=self.internal_ip, names=[self.name])
+        create_options = self.get_create_options()
+        create_options['count'] = 1
+        create_options['provider'] = self.provider
+        self.server_provider().create_servers(**create_options)
         self.post_create()
 
     def post_create(self):
@@ -489,15 +466,35 @@ class Server(Thing):
                 docker.setup()
 
     def refresh(self):
-        self.ip, self.internal_ip = server_provider(self.provider).refresh_ip(self)
+        self.ip, self.internal_address = self.server_provider().refresh_ip(self)
 
     def get_thing_name(self):
         return (self.name, None)
 
     def validate(self):
-        server_provider(self.provider).validate_create_options(
-            type=self.type, image=self.image, os=self.os, region=self.region,
-            bid=self.bid, ip=self.ip, internal_ip=self.internal_ip)
+        valid_create_options = self.server_provider().valid_create_options
+        create_options = self.get_create_options()
+        invalid_options = create_options - valid_create_options
+        if invalid_options:
+            raise ConfigException('Invalid options: %s' % invalid_options)
+
+        try:
+            self.server_provider().validate_create_options(**create_options)
+        except ValueError, e:
+            raise ConfigException('Invalid options: %s' % e)
+
+    def can_group_with(self, other):
+        return self.server_provider().can_group(
+            self.get_create_options(), other.get_create_options())
+
+    def get_create_options(self):
+        valid_create_options = self.server_provider().valid_create_options
+        create_options = {k: v for k, v in self.__dict__.items()
+                          if k in valid_create_options and v is not None}
+        return create_options
+
+    def server_provider(self):
+        return headintheclouds.server_provider(self.provider)
 
     def __repr__(self):
         return '<Server: %s>' % self.name
@@ -533,6 +530,9 @@ class Container(Thing):
             self.volumes = volumes
         self.ip = ip
 
+    def get_create_options(self):
+        return self.fields.keys()
+
     def get_thing_name(self):
         return (self.host.name, self.name)
 
@@ -566,10 +566,10 @@ class ServerCreateGroup(object):
 
     def create(self):
         first = self.servers[0]
-        server_provider(first.provider).create_servers(
-            count=len(self.servers), type=first.type, os=first.os,
-            region=first.region, bid=first.bid, image=first.image,
-            ip=first.ip, names=[s.name for s in self.servers])
+        create_options = first.get_create_options()
+        create_options['count'] = 1
+        create_options['provider'] = first.provider
+        first.server_provider().create_servers(**create_options)
         for server in self.servers:
             server.post_create()
 

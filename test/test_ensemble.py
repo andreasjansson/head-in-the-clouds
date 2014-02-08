@@ -36,10 +36,10 @@ class TestVariables(unittest.TestCase):
     def test_resolve_server(self):
         thing = ensemble.Server(name='foo', provider='ec2',
                                 type='m1.small', bid=0.3, ip='123.123.123.123')
-        server = ensemble.Server(name='bar', provider='${foo.provider}',
+        server = ensemble.Server(name='bar', provider='ec2', internal_address='${foo.provider}',
                                  type='${foo.ip} ${foo.bid} def')
         server.resolve(thing, 'provider', 0)
-        self.assertEquals(server.provider, 'ec2')
+        self.assertEquals(server.internal_address, 'ec2')
         server.resolve(thing, 'type', 1)
         self.assertEquals(server.type, '${foo.ip} 0.3 def')
         server.resolve(thing, 'type', 0)
@@ -69,7 +69,7 @@ class TestVariables(unittest.TestCase):
         }
 
         servers = {
-            's3': ensemble.Server(name='s3', provider='p-${s1.type}'),
+            's3': ensemble.Server(name='s3', ip='p-${s1.type}'),
             's4': ensemble.Server(name='s4', provider='baz'),
         }
         servers['s4'].containers = {
@@ -81,7 +81,7 @@ class TestVariables(unittest.TestCase):
         graph.add(('s4', 'c1'), ('image', 0), ('s2', 'c5'))
 
         ensemble.resolve_existing(servers, graph, existing_servers)
-        self.assertEquals(servers['s3'].provider, 'p-blah')
+        self.assertEquals(servers['s3'].ip, 'p-blah')
         self.assertEquals(servers['s4'].containers['c1'].image, 'bbbbaaz')
 
     def test_all_field_attrs(self):

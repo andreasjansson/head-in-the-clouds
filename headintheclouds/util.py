@@ -1,8 +1,6 @@
 import os
 import re
 import math
-import shutil
-import cPickle
 import uuid
 import contextlib
 from functools import wraps
@@ -20,14 +18,30 @@ def print_table(table, columns=None):
     if columns is None:
         columns = table[0].keys()
 
-    lengths = {k: len(k) for k in columns}
-    aligns = {k: '' for k in columns}
-    clean_table = []
+    column_names = []
+    for column in columns:
+        if isinstance(column, (tuple, list)):
+            column, _ = column
+        column_names.append(column)
 
+    lengths = {k: len(k) for k in column_names}
+    aligns = {k: '' for k in column_names}
+
+    clean_table = []
     for row in table:
         clean_row = {}
         for column in columns:
-            value = str(row.get(column, ''))
+            if isinstance(column, (tuple, list)):
+                column, prop = column
+            else:
+                prop = column
+
+            try:
+                value = row[prop]
+            except (KeyError, TypeError):
+                value = getattr(row, prop, '')
+
+            value = str(value)
             if len(value) > lengths[column]:
                 lengths[column] = len(value)
             if aligns[column] == '' and not is_number(value):
@@ -36,120 +50,19 @@ def print_table(table, columns=None):
         clean_table.append(clean_row)
 
     header_format_parts = []
-    for column in columns:
+    for column in column_names:
         header_format_parts.append('%%(%s)-%ds' % (column, lengths[column]))
     header_format_string = '  '.join(header_format_parts)
 
     format_parts = []
-    for column in columns:
+    for column in column_names:
         format_parts.append('%%(%s)%s%ds' % (column, aligns[column], lengths[column]))
     format_string = '  '.join(format_parts)
 
-    print(header_format_string % {k: k for k in columns})
+    print(header_format_string % {k: k for k in column_names})
     
     for row in clean_table:
         print format_string % row
-
-def cached(func):
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        recache = kwargs.get('_recache')
-        if recache:
-            del kwargs['_recache']
-        uncache = kwargs.get('_uncache')
-        if uncache:
-            del kwargs['_uncache']
-
-        cache_key = func.__module__ + '.' + func.__name__
-        if args or kwargs:
-            cache_key += cPickle.dumps((args, kwargs))
-
-        if uncache:
-            cache().delete(cache_key)
-
-        if recache:
-            ret = func(*args, **kwargs)
-            cache().set(cache_key, ret)
-        else:
-            ret = cache().get(cache_key)
-            if ret is None:
-                ret = func(*args, **kwargs)
-                cache().set(cache_key, ret)
-        return ret
-    wrapper._cached = True
-    return wrapper
-
-def recache(fn, *args, **kwargs):
-    if not hasattr(fn, '__call__'):
-        raise Exception('%s is not a function' % str(fn))
-    if not hasattr(fn, '_cached'):
-        raise Exception('Function is not decorated with @cached')
-    kwargs['_recache'] = True
-    return fn(*args, **kwargs)
-
-def uncache(fn, *args, **kwargs):
-    if not hasattr(fn, '__call__'):
-        raise Exception('%s is not a function' % str(fn))
-    if not hasattr(fn, '_cached'):
-        raise Exception('Function is not decorated with @cached')
-    kwargs['_uncache'] = True
-    return fn(*args, **kwargs)
-
-class NoneCache(object):
-    def __init__(self):
-        pass
-    def get(self, key):
-        return None
-    def set(self, key, value):
-        return None
-    def delete(self, key):
-        return None
-    def flush(self):
-        return None
-
-class FSCache(object):
-    def __init__(self):
-        self.client = pyfscache.FSCache('%s/cache' % hitc_home(), days=7)
-    def get(self, key):
-        try:
-            return self.client[key]
-        except KeyError:
-            return None
-    def set(self, key, value):
-        try:
-            self.client.update_item(key, value)
-        except pyfscache.fscache.CacheError:
-            self.client[key] = value
-    def delete(self, key):
-        try:
-            self.client.expire(key)
-        except Exception:
-            pass
-    def flush(self):
-        try:
-            shutil.rmtree('%s/cache' % hitc_home())
-        except OSError, e:
-            if e.errno != 2:
-                raise
-
-try:
-    import pyfscache
-    Cache = FSCache
-except ImportError:
-    print 'pyfscache not found, not using cache'
-    Cache = NoneCache
-
-def cache():
-    if not hasattr(cache, 'client'):
-        cache.client = Cache()
-    return cache.client
-
-def hitc_home():
-    cb_home = os.path.expanduser('~/.hitc')
-    if not os.path.exists(cb_home):
-        os.mkdir(cb_home)
-    return cb_home
 
 def _role_match(role, name):
     if role is None:
