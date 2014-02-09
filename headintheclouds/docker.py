@@ -93,7 +93,13 @@ def setup(directory=None, reboot=True):
     sudo('sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
     sudo('apt-get update')
     sudo('apt-get -y install linux-image-extra-virtual')
-    sudo('apt-get -y install lxc-docker-0.7.6')
+
+    with settings(warn_only=True):
+        for retry in range(3):
+            ret = sudo('apt-get -y install lxc-docker-0.7.6')
+            if ret.succeeded:
+                break
+            sudo('apt-get update')
 
     sudo('apt-get -y install sshpass')
 

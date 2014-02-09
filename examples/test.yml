@@ -1,0 +1,29 @@
+test:
+  provider: ec2
+  type: m1.small
+  image: ubuntu 12.04
+  placement: us-east-1c
+  containers:
+    foo:
+      image: ubuntu:precise
+      command: /bin/sh -c "sleep 10000"
+    bar:
+      image: jprjr/docker-tinyfs
+      command: /bin/sh -c "sleep 20000"
+      $count: 3
+  $count: 1
+
+scratch:
+  provider: ec2
+  type: m1.small
+  image: ubuntu 12.04
+  containers:
+    baz:
+      image: jprjr/docker-tinyfs
+      environment:
+        FOO: BAR
+      command: /bin/sh -c "sleep 40000"
+    qux:
+      image: jprjr/docker-tinyfs
+      command: /bin/sh -c "sleep 80000"
+  $count: 2
