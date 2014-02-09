@@ -8,7 +8,7 @@ import uuid
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
 import fabric.network
-from fabric.colors import green, red
+from fabric.colors import yellow, red
 from fabric.contrib.console import confirm
 
 import headintheclouds
@@ -31,7 +31,7 @@ def up(name, filename=None):
     servers = parse_config(config)
 
     existing_servers = find_existing_servers(servers.keys())
-    changing_servers, changing_containers = update_servers_with_existing(
+    new_servers, new_containers, changing_servers, changing_containers = update_servers_with_existing(
         servers, existing_servers)
 
     dependency_graph = resolve_and_get_dependencies(servers)
@@ -39,26 +39,35 @@ def up(name, filename=None):
     if cycle_node:
         raise ConfigException('Cycle detected')
 
-    if changing_servers or changing_containers:
-        confirm_changes(changing_servers, changing_containers)
+    confirm_changes(new_servers, new_containers, changing_servers, changing_containers)
 
-    create_things(servers, dependency_graph)
+    create_things(servers, dependency_graph, changing_servers, changing_containers)
 
-def confirm_changes(changing_servers, changing_containers):
+def confirm_changes(new_servers, new_containers, changing_servers, changing_containers):
+    if new_servers:
+        print yellow('The following servers will be created:')
+        for server in new_servers:
+            print '%s' % server.name
+    if new_containers:
+        print yellow('The following containers will be created:')
+        for container in new_containers:
+            print '%s (%s)' % (container.name, container.host.name)
     if changing_servers:
-        print red('The following servers are about to change:')
-        for existing_server, server in changing_servers:
-            print '%s [%s]' % (existing_server.name, existing_server.ip)
+        print red('The following servers will restart:')
+        for server in changing_servers:
+            print '%s' % server.name
     if changing_containers:
-        print red('The following containers are about to change:')
-        for existing_container, container in changing_containers:
-            print '%s (%s [%s])' % (existing_container.name,
-                                    existing_container.host.name,
-                                    existing_container.host.ip)
-    if not confirm('Do you wish to continue?'):
-        abort('Aborted')
+        print red('The following containers will restart:')
+        for container in changing_containers:
+            print '%s (%s)' % (container.name, container.host.name)
+
+    if new_servers or new_containers or changing_servers or changing_containers:
+        if not confirm('Do you wish to continue?'):
+            abort('Aborted')
 
 def update_servers_with_existing(servers, existing_servers):
+    new_servers = []
+    new_containers = []
     changing_servers = []
     changing_containers = []
 
@@ -68,7 +77,6 @@ def update_servers_with_existing(servers, existing_servers):
 
             if existing_server.is_equivalent(server):
                 server.update(existing_server.properties())
-                existing_containers = existing_server.containers
 
                 for container_name, container in server.containers.items():
                     if container_name in existing_server.containers:
@@ -76,11 +84,15 @@ def update_servers_with_existing(servers, existing_servers):
                         if existing_container.is_equivalent(container):
                             container.update(existing_container.properties())
                         else:
-                            changing_containers.append((existing_container, container))
+                            changing_containers.append(existing_container)
+                    else:
+                        new_containers.append(container)
             else:
-                changing_servers.append((existing_server, server))
+                changing_servers.append(existing_server)
+        else:
+            new_servers.append(server)
 
-    return changing_servers, changing_containers
+    return new_servers, new_containers, changing_servers, changing_containers
 
 def find_existing_servers(names):
     servers = {}
@@ -95,14 +107,24 @@ def find_existing_servers(names):
             servers[server.name] = server
     return servers
 
-def create_things(servers, dependency_graph):
+def create_things(servers, dependency_graph, changing_servers, changing_containers):
     # TODO: handle errors
 
+    things_to_delete = {thing.thing_name(): thing
+                         for thing in changing_servers + changing_containers}
+
     queue = multiprocessing.Queue()
-    processes = make_processes(servers, dependency_graph, queue)
+    processes = make_processes(servers, dependency_graph, queue, things_to_delete)
     runnable_processes = [p for p in processes.values() if p.is_resolved()]
 
+    thing_index = {}
+    for server in servers.values():
+        thing_index[server.thing_name()] = server
+        for container in server.containers.values():
+            thing_index[container.thing_name()] = container
+
     for process in runnable_processes:
+        process.thing = thing_index[process.thing_name]
         process.start()
 
     n_completed = 0
@@ -110,14 +132,13 @@ def create_things(servers, dependency_graph):
         completed_things = queue.get()
         n_completed += 1
         for thing in completed_things:
-            if isinstance(thing, Server):
-                servers[thing.name] = thing
+
+            thing_index[thing.thing_name()] = thing
+            refresh_things(thing_index)
+
             dependents = dependency_graph.get_dependents(thing.thing_name())
-            for (server_name, container_name), attr_is in dependents.items():
-                if container_name:
-                    dependent = servers[server_name].containers[container_name]
-                else:
-                    dependent = servers[server_name]
+            for thing_name, attr_is in dependents.items():
+                dependent = thing_index[thing_name]
                 process = processes[dependent.thing_name()]
                 process.to_resolve -= 1
                 for attr_i in attr_is:
@@ -125,48 +146,48 @@ def create_things(servers, dependency_graph):
                         attr, i = attr_i
                         dependent.resolve(thing, attr, i) 
                 if process.is_resolved():
+                    process.thing = dependent
                     print '--------->>>>>>>>>>>> starting %s' % process.thing
                     process.start()
 
-def make_processes(servers, dependency_graph, queue):
+def refresh_things(thing_index):
+    # TODO this starting to get really ugly. need to refactor
+    for thing_name, thing in thing_index.items():
+        if isinstance(thing, Server):
+            for container_name, container in thing.containers.items():
+                thing.containers[container_name] = thing_index[container.thing_name()]
+        elif isinstance(thing, Container):
+            thing.host = thing_index[thing.host.thing_name()]
+
+def make_processes(servers, dependency_graph, queue, things_to_delete):
     processes = {}
-    resolved_servers = collections.defaultdict(list)
 
     for server in servers.values():
         if not server.active:
             depends = dependency_graph.get_depends(server.thing_name())
-            if False and len(depends) == 0: # disable grouping for now.
-                for group_server, group in resolved_servers.items():
-                    if group_server.is_equivalent(server):
-                        group.append(server)
-                        break
-                else:
-                    resolved_servers[server].append(server)
-            else:
-                processes[server.thing_name()] = UpProcess(server, len(depends), queue)
+            process = UpProcess(server.thing_name(), len(depends), queue)
+            process.thing_to_delete = things_to_delete.get(server.thing_name(), None)
+            processes[server.thing_name()] = process
+
         for container in server.containers.values():
             if not container.active:
                 depends = dependency_graph.get_depends(container.thing_name())
-                processes[container.thing_name()] = UpProcess(container, len(depends), queue)
-
-    for servers in resolved_servers.values():
-        if len(servers) > 1:
-            server_group = ServerCreateGroup(servers)
-            processes[server_group.thing_name()] = UpProcess(server_group, 0, queue)
-        else:
-            server = servers[0]
-            processes[server.thing_name()] = UpProcess(server, 0, queue)
+                process = UpProcess(container.thing_name(), len(depends), queue)
+                process.thing_to_delete = things_to_delete.get(container.thing_name(), None)
+                processes[container.thing_name()] = process
 
     return processes
 
 class UpProcess(multiprocessing.Process):
 
-    def __init__(self, thing, to_resolve, queue):
+    def __init__(self, thing_name, to_resolve, queue, thing_to_delete=None):
         super(UpProcess, self).__init__()
         # works because we don't need to mutate thing anymore once we've forked
-        self.thing = thing
+        self.thing_name = thing_name
         self.to_resolve = to_resolve
         self.queue = queue
+        self.thing = None
+        self.thing_to_delete = None
 
         if not MULTI_THREADED:
             self.start = self.run
@@ -178,11 +199,11 @@ class UpProcess(multiprocessing.Process):
         if MULTI_THREADED:
             fabric.network.disconnect_all()
 
-        self.thing.create()
-        if isinstance(self.thing, ServerCreateGroup):
-            self.queue.put(self.thing.servers)
-        else:
-            self.queue.put([self.thing])
+        if self.thing_to_delete:
+            self.thing_to_delete.delete()
+
+        created_things = self.thing.create()
+        self.queue.put(created_things)
 
     def is_resolved(self):
         return self.to_resolve == 0
@@ -491,11 +512,16 @@ class Server(Thing):
             names=[self.name], count=1, **create_options)[0]
         self.update(node)
         self.post_create()
+        return [self]
 
     def post_create(self):
         if self.containers:
             with host_settings(self):
                 docker.setup()
+
+    def delete(self):
+        with host_settings(self):
+            self.server_provider().terminate()
 
     def thing_name(self):
         return (self.name, None)
@@ -586,6 +612,11 @@ class Container(Thing):
                 image=self.image, name=self.name,
                 command=self.command, environment=self.environment,
                 ports=self.ports, volumes=self.volumes)
+        return [self]
+
+    def delete(self):
+        with host_settings(self.host):
+            docker.kill(self.name)
 
     def is_equivalent(self, other):
         return (self.name == other.name
@@ -602,7 +633,7 @@ class Container(Thing):
         for k in set(this_dict) | set(other_dict):
             if k in ignored_keys:
                 continue
-            if this_dict[k] != other_dict[k]:
+            if this_dict.get(k, None) != other_dict.get(k, None):
                 return False
         return True
 
@@ -629,6 +660,7 @@ class ServerCreateGroup(object):
             node = [n for n in nodes if n['name'] == server.name][0]
             server.update(node)
             server.post_create()
+        return self.servers
 
     def thing_name(self):
         return uuid.uuid4() # never used, just random

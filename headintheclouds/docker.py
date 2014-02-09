@@ -31,7 +31,7 @@ def sshfs(process, remote_dir, local_dir):
 @autodoc
 def ps():
     containers = get_containers()
-    print_table(containers, ['name', 'ip', 'ports', 'created', 'image'])
+    print_table(containers, ['name', 'ip', 'ports', 'created', 'image'], sort='name')
 
 @cloudtask
 @parallel
@@ -218,6 +218,9 @@ def run_container(image, name=None, command=None, environment=None,
     container = get_container(name)
     if container and container['state'] == 'stopped':
         remove_container(name)
+
+    if isinstance(environment, (list, tuple)):
+        environment = {k: v for k, v in environment}
 
     parts = ['docker', 'run', '-d']
     if name:

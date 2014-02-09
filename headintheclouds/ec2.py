@@ -108,20 +108,19 @@ def nodes():
 
 create_server_defaults = {
     'type': 'm1.small',
-    'os': 'ubuntu 12.04',
     'placement': 'us-east-1b',
     'bid': None,
-    'image': None,
+    'image': 'ubuntu 12.04',
     'security_group': 'default',
 }
 
-def create_servers(count, names=None, type=None, os=None, placement=None,
+def create_servers(count, names=None, type=None, placement=None,
                    bid=None, image=None, security_group=None, prefer_ebs=False):
     count = int(count)
     assert count == len(names)
 
-    if image is None:
-        ubuntu_version = os.split(' ')[-1]
+    if image.lower().startswith('ubuntu'):
+        ubuntu_version = image.split(' ')[-1]
         # TODO: allow setting things like root-store
         image = _get_image_id_for_size(type, ubuntu_version, prefer_ebs=prefer_ebs)
 
@@ -228,17 +227,15 @@ def create_spot_instances(count, type, placement, image, names, bid, security_gr
 
     return instance_ids
 
-def validate_create_options(type, os, placement, bid, image, security_group, prefer_ebs=False):
+def validate_create_options(type, placement, bid, image, security_group, prefer_ebs=False):
     if type is not None and type not in get_node_types():
         raise Exception('Unknown EC2 instance type: "%s"' % type)
 
-    if os is not None:
-        if not os.lower().startswith('ubuntu'):
-            raise Exception('For a non-Ubuntu OS, you need to specify an image')
-        if os.split(' ')[-1] not in [v for v, _ in OS_ROOT_STORE_AMI_MAP]:
+    if image.lower().startswith('ubuntu'):
+        if image.split(' ')[-1] not in [v for v, _ in OS_ROOT_STORE_AMI_MAP]:
             raise Exception('Unknown Ubuntu version, please specify an image')
 
-    if os is None and image is None:
+    if image is None:
         raise Exception('You need to either specify an image AMI or use a shorthand os')
 
 def rename(role):
@@ -536,13 +533,13 @@ def equivalent_create_options(options1, options2):
     options1 = options1.copy()
     options2 = options2.copy()
 
-    if options1['image'] is None:
+    if options1['image'].lower().startswith('ubuntu '):
         options1['image'] = _get_image_id_for_size(
-            options1['type'], options1['os'].lower().split('ubuntu ')[1],
+            options1['type'], options1['image'][' '][-1],
             prefer_ebs=False)
-    if options2['image'] is None:
+    if options2['image'].lower().startswith('ubuntu '):
         options2['image'] = _get_image_id_for_size(
-            options2['type'], options2['os'].lower().split('ubuntu ')[1],
+            options2['type'], options2['image'][' '][-1],
             prefer_ebs=False)
 
     return (options1['type'] == options2['type']
