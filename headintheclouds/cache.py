@@ -6,21 +6,12 @@ import time
 from functools import wraps
 
 FILENAME = '~/.hitc/sqlite_cache.db'
-MEMORY_CACHE = True
 
 _cursor = None
-_cache = {}
 
 python_set = set
 
 def get(key):
-    if MEMORY_CACHE:
-        if key in _cache:
-            value, expire = _cache[key]
-            if not expire or expire > time.time():
-                return cPickle.loads(str(value))
-            del _cache[key]
-
     _db().execute('''
         SELECT value, expire
         FROM cache
@@ -30,8 +21,6 @@ def get(key):
     if ret:
         value, expire = ret
         if not expire or expire > time.time():
-            if MEMORY_CACHE:
-                _cache[key] = value, expire
             return cPickle.loads(str(value))
         # avoid race conditions by deleting
         # just this expiration timestamp
@@ -44,19 +33,12 @@ def set(key, value, ttl=None):
     else:
         expire = time.time() + ttl
 
-    if MEMORY_CACHE:
-        _cache[key] = cPickle.dumps(value), expire
-
     _db().execute('''
         REPLACE INTO cache
         VALUES (?, ?, ?)
     ''', (key, cPickle.dumps(value), expire))
 
 def delete(key, expire=None):
-    if MEMORY_CACHE:
-        if key in _cache:
-            del _cache[key]
-
     if expire:
         if not isinstance(expire, (float, int)):
             raise ValueError('expire must be a number')
@@ -71,10 +53,7 @@ def delete(key, expire=None):
         ''', (key,))
 
 def flush():
-    global _cursor, _cache
-
-    if MEMORY_CACHE:
-        _cache = {}
+    global _cursor
 
     try:
         os.unlink(_filename())
@@ -84,9 +63,6 @@ def flush():
     _cursor = None
 
 def size():
-    if MEMORY_CACHE:
-        return len(_cache)
-
     _db().execute('''
         SELECT COUNT(*)
         FROM cache

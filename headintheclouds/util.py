@@ -64,16 +64,6 @@ def print_table(table, columns=None):
     for row in clean_table:
         print format_string % row
 
-def _role_match(role, name):
-    if role is None:
-        return True
-
-    regex = '^%s-[0-9]+$' % role
-    return bool(re.match(regex, name))
-
-def filter_role(role, nodes):
-    return [x for x in nodes if _role_match(role, x['name'])]
-
 def env_var(var):
     value = os.environ.get(var)
     if not value:
@@ -92,15 +82,6 @@ def stddev(x):
 
 def median(x):
     return sorted(x)[len(x) // 2]
-
-@contextlib.contextmanager
-def temp_dir():
-    tmp_dir = '/tmp/' + str(uuid.uuid4())
-    run('mkdir %s || true' % tmp_dir)
-    try:
-        yield tmp_dir
-    finally:
-        run('rm -rf %s' % tmp_dir)
 
 def autodoc(func):
 
@@ -126,6 +107,4 @@ def autodoc(func):
         func(*args, **kwargs)
 
     return wrapped
-    
-if not hasattr(env, 'name_prefix'):
-    env.name_prefix = 'HITC-'
+

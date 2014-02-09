@@ -2,6 +2,7 @@ import re
 import os
 import contextlib
 import simplejson as json
+import subprocess
 import dateutil.parser
 import fabric.contrib.files
 import fabric.api as fab
@@ -30,30 +31,8 @@ def sshfs(process, remote_dir, local_dir):
 @cloudtask
 @autodoc
 def ps():
-    container_ids = get_container_ids()
-    processes = []
-    for id in container_ids:
-        metadata = get_metadata(id)[0]
-        created = dateutil.parser.parse(metadata['Created'])
-        name = metadata['Name'][1:]
-        ip = metadata['NetworkSettings']['IPAddress']
-        local_ports = set([k.split('/')[0] for k in metadata['NetworkSettings']['Ports']])
-        public_ports = get_public_ports(ip)
-        for local_port, public_port in public_ports:
-            if local_port in local_ports:
-                local_ports.remove(local_port)
-        for port in local_ports:
-            public_ports.append((port, None))
-
-        image = metadata['Config']['Image']
-        processes.append({
-            'Created': created.strftime('%Y-%m-%d %H:%M:%S'),
-            'Name': name,
-            'IP': ip,
-            'Ports': ', '.join(['%s -> %s' % (fr, to) for fr, to in public_ports]),
-            'Image': image,
-        })
-    print_table(processes, ['Name', 'IP', 'Ports', 'Created', 'Image'])
+    containers = get_containers()
+    print_table(containers, ['name', 'ip', 'ports', 'created', 'image'])
 
 @cloudtask
 @parallel
@@ -97,7 +76,6 @@ def unbind(process, port_spec1, *other_port_specs):
 
 @cloudtask
 @parallel
-@autodoc
 def setup(directory=None, reboot=True):
     # TODO: make this not require a reboot
 
@@ -116,7 +94,7 @@ def setup(directory=None, reboot=True):
     sudo('sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
     sudo('apt-get update')
     sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install linux-image-extra-virtual')
-    sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install lxc-docker')
+    sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install lxc-docker-0.8.0')
     sudo('apt-get -y install sshpass')
 
     if directory is not None:
@@ -238,6 +216,10 @@ def run_container(image, name=None, command=None, environment=None,
 
     setup()
 
+    container = get_container(name)
+    if container and container['state'] == 'stopped':
+        remove_container(name)
+
     parts = ['docker', 'run', '-d']
     if name:
         parts += ['-name', name]
@@ -249,7 +231,7 @@ def run_container(image, name=None, command=None, environment=None,
             parts += ['-e', '%s=%s' % (key, value)]
     parts += [image]
     if command:
-        parts += [command]
+        parts += ['%s' % command]
     command_line = ' '.join(parts)
     sudo(command_line)
 
@@ -258,8 +240,11 @@ def run_container(image, name=None, command=None, environment=None,
         for port, public_port in parse_port_specs(ports):
             bind_process(ip, port, public_port)
 
+def remove_container(id):
+    sudo('docker rm %s' % id)
+
 def get_metadata(process):
-    with hide('everything'):
+    with settings(hide('everything'), warn_only=True):
         result = sudo('docker inspect %s' % process)
     if result.failed:
         return None
@@ -275,6 +260,51 @@ def inside(process):
     return fabric.context_managers.settings(gateway='%s@%s:%s' % (env.user, env.host, env.port),
                                             host=ip, host_string='root@%s' % ip, user='root',
                                             key_filename=None, password='root', no_keys=True, allow_agent=False)
+
+def get_containers():
+    containers = []
+    container_ids = get_container_ids()
+    for id in container_ids:
+        containers.append(get_container(id))
+    return containers
+
+def get_container(id):
+    metadata = get_metadata(id)
+    if not metadata:
+        return None
+    metadata = metadata[0]
+
+    created = dateutil.parser.parse(metadata['Created'])
+    name = metadata['Name'][1:]
+    ip = metadata['NetworkSettings']['IPAddress']
+    local_ports = metadata['NetworkSettings']['Ports']
+    if local_ports:
+        local_ports = set([k.split('/')[0] for k in metadata['NetworkSettings']['Ports']])
+    else:
+        local_ports = []
+    ports = get_public_ports(ip)
+    for local_port, public_port in ports:
+        if local_port in local_ports:
+            local_ports.remove(local_port)
+    for port in local_ports:
+        ports.append((port, None))
+    ports = [[fr, to] for fr, to in ports] # make it a list cause ensemble wants it
+    environment = metadata['Config']['Env']
+    environment = [e.split('=', 1) for e in environment]
+    state = 'running' if metadata['State']['Running'] else 'stopped'
+    command = subprocess.list2cmdline(metadata['Config']['Cmd'])
+
+    image = metadata['Config']['Image']
+    return {
+        'created': created.strftime('%Y-%m-%d %H:%M:%S'),
+        'name': name,
+        'command': command,
+        'ip': ip,
+        'ports': ports,
+        'image': image,
+        'environment': environment,
+        'state': state,
+    }
 
 def get_container_ids():
     container_ids = []

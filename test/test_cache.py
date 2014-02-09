@@ -122,16 +122,5 @@ class TestCache(unittest.TestCase):
         self.assertEquals(foo(), ret)
         self.assertEquals(times_called['n'], 2)
         
-        
-class TestNoMemoryCache(TestCache):
-
-    def setUp(self):
-        super(TestNoMemoryCache, self).setUp()
-        cache.MEMORY_CACHE = False
-
-    def tearDown(self):
-        super(TestNoMemoryCache, self).tearDown()
-        cache.MEMORY_CACHE = True
-
 def randstr():
     return str(uuid.uuid4())

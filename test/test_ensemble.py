@@ -2,6 +2,7 @@ import time
 import unittest2 as unittest
 
 from headintheclouds import ensemble
+from headintheclouds import ec2
 
 ensemble.Server.__eq__ = lambda self, other: self.__dict__ == other.__dict__
 ensemble.Container.__eq__ = lambda self, other: self.__dict__ == other.__dict__
@@ -34,12 +35,12 @@ class TestVariables(unittest.TestCase):
         self.assertEquals(ensemble.resolve('${host.bid}', thing, 0), '0.3')
 
     def test_resolve_server(self):
-        thing = ensemble.Server(name='foo', provider='ec2',
+        thing = ensemble.Server(name='foo', security_group='asdf',
                                 type='m1.small', bid=0.3, ip='123.123.123.123')
-        server = ensemble.Server(name='bar', provider='ec2', internal_address='${foo.provider}',
+        server = ensemble.Server(name='bar', provider='ec2', internal_address='${foo.security_group}',
                                  type='${foo.ip} ${foo.bid} def')
-        server.resolve(thing, 'provider', 0)
-        self.assertEquals(server.internal_address, 'ec2')
+        server.resolve(thing, 'internal_address', 0)
+        self.assertEquals(server.internal_address, 'asdf')
         server.resolve(thing, 'type', 1)
         self.assertEquals(server.type, '${foo.ip} 0.3 def')
         server.resolve(thing, 'type', 0)
@@ -77,7 +78,7 @@ class TestVariables(unittest.TestCase):
         }
 
         graph = ensemble.DependencyGraph()
-        graph.add(('s3', None), ('provider', 0), ('s1', None))
+        graph.add(('s3', None), ('ip', 0), ('s1', None))
         graph.add(('s4', 'c1'), ('image', 0), ('s2', 'c5'))
 
         ensemble.resolve_existing(servers, graph, existing_servers)
@@ -201,11 +202,9 @@ class TestParseServer(unittest.TestCase):
             'provider': 'ec2',
             'type': 'm1.large',
             'image': 'foobar',
-            'os': 'ubuntu',
-            'region': 'us-east',
+            'os': 'ubuntu 12.04',
+            'placement': 'us-east-1b',
             'bid': 0.2,
-            'internal_ip': '10.0.0.1',
-            'ip': '50.0.0.1',
         }
         expected = {
             server_name: ensemble.Server(
@@ -213,11 +212,9 @@ class TestParseServer(unittest.TestCase):
                 provider='ec2',
                 type='m1.large',
                 image='foobar',
-                os='ubuntu',
-                region='us-east',
+                os='ubuntu 12.04',
+                placement='us-east-1b',
                 bid=0.2,
-                internal_ip='10.0.0.1',
-                ip='50.0.0.1',
             )
         }
         self.assertEquals(ensemble.parse_server(server_name, config, {}),
@@ -292,6 +289,7 @@ class TestMultiprocess(unittest.TestCase):
         servers = {'s1': s1}
         graph = ensemble.DependencyGraph()
         graph.add(('s1', 'c1'), None, ('s1', None))
+
         ensemble.create_things(servers, graph)
 
     def test_multiple_dependencies(self):

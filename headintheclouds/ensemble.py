@@ -3,9 +3,12 @@ import yaml
 import re
 import collections
 import multiprocessing
+import uuid
 
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
+from fabric.colors import green, red
+from fabric.contrib.console import confirm
 
 import headintheclouds
 from headintheclouds import docker
@@ -22,57 +25,80 @@ def up(name, filename=None):
     with open(filename, 'r') as f:
         config = yaml.load(f)
 
-    try:
-        servers, dependency_graph = parse_config(config)
-    except ConfigException, e:
-        if e.container_name:
-            abort('Configuration error in server "%s", container "%s": %s' % (
-                e.server_name, e.container_name, str(e)))
-        else:
-            abort('Configuration error in server "%s": %s' % (e.server_name, str(e)))
+    servers = parse_config(config)
 
-    existing_servers, existing_containers = find_existing_things()
-    (servers_to_delete, servers_to_start,
-     containers_to_kill, containers_to_start) = get_changes(
-         servers, existing_servers, existing_containers)
-    confirm_changes(servers_to_delete, servers_to_start,
-                    containers_to_kill, containers_to_start)
+    existing_servers = find_existing_servers(servers.keys())
+    changing_servers, changing_containers = update_servers_with_existing(
+        servers, existing_servers)
 
-    resolve_existing(dependency_graph, servers, existing_servers)
+    dependency_graph = resolve_and_get_dependencies(servers)
+    cycle_node = dependency_graph.find_cycle()
+    if cycle_node:
+        raise ConfigException('Cycle detected')
+
+    if changing_servers or changing_containers:
+        confirm_changes(changing_servers, changing_containers)
+
     create_things(servers, dependency_graph)
 
-def find_existing_things():
-    return [], []
+def confirm_changes(changing_servers, changing_containers):
+    if changing_servers:
+        print red('The following servers are about to change:')
+        for existing_server, server in changing_servers:
+            print '%s [%s]' % (existing_server.name, existing_server.ip)
+    if changing_containers:
+        print red('The following containers are about to change:')
+        for existing_container, container in changing_containers:
+            print '%s (%s [%s])' % (existing_container.name,
+                                    existing_container.host.name,
+                                    existing_container.host.ip)
+    if not confirm('Do you wish to continue?'):
+        abort('Aborted')
 
-def get_changes(servers, existing_servers, existing_containers):
-    return [], [], servers, []
+def update_servers_with_existing(servers, existing_servers):
+    changing_servers = []
+    changing_containers = []
 
-def confirm_changes(servers_to_delete, servers_to_start,
-                    containers_to_kill, containers_to_start):
-    pass
+    for server_name, server in servers.items():
+        if server_name in existing_servers:
+            existing_server = existing_servers[server_name]
 
-def resolve_existing(servers, dependency_graph, existing_servers):
-    def resolve_thing(existing_thing):
-        dependents = dependency_graph.get_dependents(existing_thing.get_thing_name())
-        for (server_name, container_name), attr_is in dependents.items():
-            if container_name:
-                dependent = servers[server_name].containers[container_name]
+            if existing_server.is_equivalent(server):
+                server.update(existing_server.properties())
+                existing_containers = existing_server.containers
+
+                for container_name, container in server.containers.items():
+                    if container_name in existing_server.containers:
+                        existing_container = existing_server.containers[container_name]
+                        if existing_container.is_equivalent(container):
+                            container.update(existing_container.properties())
+                        else:
+                            changing_containers.append((existing_container, container))
             else:
-                dependent = servers[server_name]
-            for attr, i in attr_is:
-                dependent.resolve(existing_thing, attr, i)
+                changing_servers.append((existing_server, server))
 
-    for existing_server in existing_servers.values():
-        resolve_thing(existing_server)
-        for existing_container in existing_server.containers.values():
-            resolve_thing(existing_container)
-            
+    return changing_servers, changing_containers
+
+def find_existing_servers(names):
+    servers = {}
+    for node in headintheclouds.all_nodes():
+        if node['name'] in names:
+            server = Server(active=True, **node)
+            with host_settings(server):
+                containers = docker.get_containers()
+            for container in containers:
+                container = Container(host=server, active=True, **container)
+                server.containers[container.name] = container
+            servers[server.name] = server
+    return servers
+
 def create_things(servers, dependency_graph):
     # TODO: handle errors
 
     queue = multiprocessing.Queue()
     processes = make_processes(servers, dependency_graph, queue)
     runnable_processes = [p for p in processes.values() if p.is_resolved()]
+
     for process in runnable_processes:
         process.start()
 
@@ -81,20 +107,22 @@ def create_things(servers, dependency_graph):
         completed_things = queue.get()
         n_completed += 1
         for thing in completed_things:
-            thing.refresh()
-            dependents = dependency_graph.get_dependents(thing.get_thing_name())
+            if isinstance(thing, Server):
+                servers[thing.name] = thing
+            dependents = dependency_graph.get_dependents(thing.thing_name())
             for (server_name, container_name), attr_is in dependents.items():
                 if container_name:
                     dependent = servers[server_name].containers[container_name]
                 else:
                     dependent = servers[server_name]
-                process = processes[dependent]
+                process = processes[dependent.thing_name()]
                 process.to_resolve -= 1
                 for attr_i in attr_is:
                     if attr_i:
                         attr, i = attr_i
                         dependent.resolve(thing, attr, i) 
                 if process.is_resolved():
+                    print '--------->>>>>>>>>>>> starting %s' % process.thing
                     process.start()
 
 def make_processes(servers, dependency_graph, queue):
@@ -102,27 +130,29 @@ def make_processes(servers, dependency_graph, queue):
     resolved_servers = collections.defaultdict(list)
 
     for server in servers.values():
-        depends = dependency_graph.get_depends(server.get_thing_name())
-        if len(depends) == 0:
-            for group_server, group in resolved_servers.items():
-                if group_server.can_group_with(server):
-                    group.append(server)
-                    break
+        if not server.active:
+            depends = dependency_graph.get_depends(server.thing_name())
+            if False and len(depends) == 0: # disable grouping for now.
+                for group_server, group in resolved_servers.items():
+                    if group_server.is_equivalent(server):
+                        group.append(server)
+                        break
+                else:
+                    resolved_servers[server].append(server)
             else:
-                resolved_servers[server].append(server)
-        else:
-            processes[server] = UpProcess(server, len(depends), queue)
+                processes[server.thing_name()] = UpProcess(server, len(depends), queue)
         for container in server.containers.values():
-            depends = dependency_graph.get_depends(container.get_thing_name())
-            processes[container] = UpProcess(container, len(depends), queue)
+            if not container.active:
+                depends = dependency_graph.get_depends(container.thing_name())
+                processes[container.thing_name()] = UpProcess(container, len(depends), queue)
 
     for servers in resolved_servers.values():
         if len(servers) > 1:
             server_group = ServerCreateGroup(servers)
-            processes[server_group] = UpProcess(server_group, 0, queue)
+            processes[server_group.thing_name()] = UpProcess(server_group, 0, queue)
         else:
             server = servers[0]
-            processes[server] = UpProcess(server, 0, queue)
+            processes[server.thing_name()] = UpProcess(server, 0, queue)
 
     return processes
 
@@ -136,6 +166,9 @@ class UpProcess(multiprocessing.Process):
         self.queue = queue
 
     def run(self):
+        global env
+        env = env.copy()
+
         self.thing.create()
         if isinstance(self.thing, ServerCreateGroup):
             self.queue.put(self.thing.servers)
@@ -173,26 +206,18 @@ def parse_config(config):
 
         all_servers.update(servers)
 
-    dependency_graph = get_dependencies(servers)
-    cycle_node = dependency_graph.find_cycle()
-    if cycle_node:
-        raise ConfigException('Cycle detected')
-
-    return all_servers, dependency_graph
+    return all_servers
 
 def parse_server(server_name, spec, templates):
     expand_template(spec, templates)
     servers = {}
     
     count = spec.get('$count', 1)
+    if '$count' in spec:
+        del spec['$count']
     for i in range(count):
-        if count > 1:
-            server = Server('%s-%d' % (server_name, i), **spec)
-        else:
-            server = Server(server_name, **spec)
-
+        server = Server('%s-%d' % (server_name, i), **spec)
         server.validate()
-
         servers[server.name] = server
 
     return servers
@@ -207,11 +232,10 @@ def parse_container(container_name, spec, server, templates):
             'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
 
     count = spec.get('$count', 1)
+    if '$count' in spec:
+        del spec['$count']
     for i in range(count):
-        if count > 1:
-            container = Container('%s-%d' % (container_name, i), server)
-        else:
-            container = Container(container_name, server)
+        container = Container('%s-%d' % (container_name, i), server)
 
         for field, value_parser in Container.fields.items():
             if field in spec:
@@ -235,26 +259,24 @@ def expand_template(spec, templates):
             if k not in spec:
                 spec[k] = v
 
-def get_dependencies(servers):
+def resolve_and_get_dependencies(servers):
     dependency_graph = DependencyGraph()
 
     for server in servers.values():
         for value, attr in all_field_attrs(server):
-            add_variable_dependency(value, attr, servers, dependency_graph, server)
+            resolve_or_add_dependency(value, attr, servers, dependency_graph, server)
 
         for container in server.containers.values():
             for value, attr in all_field_attrs(container):
-                add_variable_dependency(value, attr, dependency_graph, server, container)
+                resolve_or_add_dependency(value, attr, dependency_graph, server, container)
 
             # need its own server to start first
-            dependency_graph.add(container.get_thing_name(), None, server.get_thing_name())
+            if not server.active:
+                dependency_graph.add(container.thing_name(), None, server.thing_name())
 
     return dependency_graph
 
-def add_variable_dependency(value, attr, dependency_graph, server, container=None):
-    # TODO: validate that it's actually possible to get the value
-    # (e.g. host.asdf, host.container.blah.bid neither make sense)
-
+def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container=None):
     variables, _ = parse_variables(value)
     for i, var in enumerate(variables):
         parts = var.split('.')
@@ -270,7 +292,19 @@ def add_variable_dependency(value, attr, dependency_graph, server, container=Non
         else:
             depends_container = None
 
-        dependency_graph.add((server.name, container.name if container else None), (attr, i), (depends_server, depends_container))
+        if container:
+            dependent = container
+        else:
+            dependent = server
+        if depends_container:
+            depends = servers[depends_server].containers[depends_container]
+        else:
+            depends = servers[depends_server]
+
+        could_resolve = dependent.resolve(depends, attr, i)
+        if not could_resolve:
+            dependency_graph.add((server.name, container.name if container else None),
+                                 (attr, i), (depends_server, depends_container))
 
 def parse_variables(value):
     variables = []
@@ -348,19 +382,13 @@ def all_field_attrs(thing):
             return [(value, indices)]
 
     for field in thing.get_create_options():
-        if not thing.__dict__[field]:
+        if not hasattr(thing, field):
             continue
 
         attr = field
-        value = thing.__dict__[attr]
+        value = getattr(thing, attr)
         for x, indices in recurse(value, []):
             yield x, attr + ''.join([':%d' % i for i in indices])
-
-class Thing(object):
-
-    def resolve(self, thing, attr, i):
-        new_value = resolve(get_field_value(self, attr), thing, i)
-        update_field(self, attr, new_value)
 
 def parse_string(value):
     if not isinstance(value, basestring):
@@ -413,35 +441,30 @@ def parse_environment(value):
             '"environment" should be a dictionary: %s' % value)
     return [list(x) for x in value.items()]
 
-def server_provider(provider):
-    if provider == 'ec2':
-        return ec2
-    elif provider == 'digitalocean':
-        return do
-    elif provider is None:
-        return SingleServer()
-
 def host_settings(server):
     settings = {
         'provider': server.provider,
-        'host': server.ip
+        'host': server.ip,
+        'host_string': server.ip,
     }
-    settings.update(server_provider(server.provider).settings)
+    settings.update(server.server_provider().settings)
     return fab.settings(**settings)
 
+class Thing(object):
 
-class SingleServer(object):
+    def resolve(self, thing, attr, i):
+        new_value = resolve(get_field_value(self, attr), thing, i)
+        update_field(self, attr, new_value)
 
-    def create_server(self):
-        pass
-
-    def refresh_ip(self, server):
-        return server.ip, server.internal_address
+    def update(self, props):
+        for prop, value in props.items():
+            setattr(self, prop, value)
 
 class Server(Thing):
 
     def __init__(self, name, provider=None, containers=None,
-                 ip=None, internal_address=None, **kwargs):
+                 ip=None, internal_address=None, active=None,
+                 **kwargs):
         self.name = name
         self.provider = provider
         self.ip = ip
@@ -451,50 +474,58 @@ class Server(Thing):
             self.containers = {}
         else:
             self.containers = containers
+        self.active = active
 
     def create(self):
         create_options = self.get_create_options()
-        create_options['count'] = 1
-        create_options['provider'] = self.provider
-        self.server_provider().create_servers(**create_options)
+        node = self.server_provider().create_servers(
+            names=[self.name], count=1, **create_options)[0]
+        self.update(node)
         self.post_create()
 
     def post_create(self):
         if self.containers:
-            self.refresh()
             with host_settings(self):
                 docker.setup()
 
-    def refresh(self):
-        self.ip, self.internal_address = self.server_provider().refresh_ip(self)
-
-    def get_thing_name(self):
+    def thing_name(self):
         return (self.name, None)
 
     def validate(self):
-        valid_create_options = self.server_provider().valid_create_options
-        create_options = self.get_create_options()
-        invalid_options = create_options - valid_create_options
+        valid_options = self.server_provider().create_server_defaults.keys()
+        given_options = {k: v for k, v in self.__dict__.items()
+                         if k not in ('name', 'provider', 'containers')
+                         and v is not None}
+        invalid_options = set(given_options) - set(valid_options)
         if invalid_options:
             raise ConfigException('Invalid options: %s' % invalid_options)
 
+        create_options = self.get_create_options()
         try:
             self.server_provider().validate_create_options(**create_options)
         except ValueError, e:
             raise ConfigException('Invalid options: %s' % e)
 
-    def can_group_with(self, other):
-        return self.server_provider().can_group(
-            self.get_create_options(), other.get_create_options())
+    def is_equivalent(self, other):
+        return (self.provider == other.provider
+                and hasattr(self.server_provider(), 'equivalent_create_options')
+                and self.server_provider().equivalent_create_options(
+                    self.get_create_options(), other.get_create_options()))
 
     def get_create_options(self):
-        valid_create_options = self.server_provider().valid_create_options
-        create_options = {k: v for k, v in self.__dict__.items()
-                          if k in valid_create_options and v is not None}
+        create_options = self.server_provider().create_server_defaults.copy()
+        create_options.update({k: v for k, v in self.__dict__.items()
+                               if k in create_options
+                               and v is not None})
         return create_options
 
+    def properties(self):
+        return {k: v for k, v in self.__dict__.items()
+                if k not in ('containers')
+                and v is not None}
+
     def server_provider(self):
-        return headintheclouds.server_provider(self.provider)
+        return headintheclouds.provider_by_name(self.provider)
 
     def __repr__(self):
         return '<Server: %s>' % self.name
@@ -511,7 +542,8 @@ class Container(Thing):
     }
     
     def __init__(self, name, host, image=None, command=None, environment=None,
-                 ports=None, volumes=None, ip=None):
+                 ports=None, volumes=None, ip=None, active=None, state=None,
+                 created=None):
         self.name = name
         self.host = host
         self.image = image
@@ -529,26 +561,47 @@ class Container(Thing):
         else:
             self.volumes = volumes
         self.ip = ip
+        self.active = active
+        self.state = state
+        self.created = created
 
     def get_create_options(self):
         return self.fields.keys()
 
-    def get_thing_name(self):
+    def thing_name(self):
         return (self.host.name, self.name)
 
     def create(self):
-        if self.host.ip is None:
-            self.host.refresh()
-
         with host_settings(self.host):
+            print '--------->>>>>>>>>>>> run_container %s' % self.host
             docker.run_container(
                 image=self.image, name=self.name,
                 command=self.command, environment=self.environment,
                 ports=self.ports, volumes=self.volumes)
 
-    def inspect(self):
-        with host_settings(self.host):
-            self.ip = docker.get_ip(self.name)
+    def is_equivalent(self, other):
+        return (self.name == other.name
+                and self.image == other.image
+                and self.command == other.command
+                and self.is_equivalent_environment(other)
+                and set(self.ports) == set(other.ports)
+                and set(self.volumes) == set(other.volumes))
+
+    def is_equivalent_environment(self, other):
+        ignored_keys = set(['HOME', 'PATH']) # for now
+        this_dict = {k: v for k, v in self.environment}
+        other_dict = {k: v for k, v in other.environment}
+        for k in set(this_dict) | set(other_dict):
+            if k in ignored_keys:
+                continue
+            if this_dict[k] != other_dict[k]:
+                return False
+        return True
+
+    def properties(self):
+        return {k: v for k, v in self.__dict__.items()
+                if k not in ('host')
+                and v is not None}
 
     def __repr__(self):
         return '<Container: %s (%s)>' % (self.name, self.host.name if self.host else None)
@@ -556,23 +609,21 @@ class Container(Thing):
 class ServerCreateGroup(object):
 
     def __init__(self, servers):
-        first = servers[0]
-        assert all([s.provider == first.provider for s in servers])
-        assert all([s.type == first.type for s in servers])
-        assert all([s.bid == first.bid for s in servers])
-        self.servers = servers
-
         self.servers = servers
 
     def create(self):
         first = self.servers[0]
         create_options = first.get_create_options()
-        create_options['count'] = 1
-        create_options['provider'] = first.provider
-        first.server_provider().create_servers(**create_options)
+        names = [s.name for s in self.servers]
+        nodes = first.server_provider().create_servers(
+            count=len(self.servers), names=names, **create_options)
         for server in self.servers:
+            node = [n for n in nodes if n['name'] == server.name][0]
+            server.update(node)
             server.post_create()
 
+    def thing_name(self):
+        return uuid.uuid4() # never used, just random
 
 class DependencyGraph(object):
 

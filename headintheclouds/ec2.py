@@ -103,19 +103,19 @@ def reboot():
 
 def nodes():
     nodes = cache.recache(all_nodes)
-    util.print_table(nodes, ['name', 'size', 'ip_address', 'private_dns_name', 'status', 'launch_time'])
+    util.print_table(nodes, ['name', 'type', 'ip', 'internal_address', 'state', 'created'])
 
 
 create_server_defaults = {
     'type': 'm1.small',
-    'os': 'Ubuntu 12.04',
-    'region': 'us-east-1b',
+    'os': 'ubuntu 12.04',
+    'placement': 'us-east-1b',
     'bid': None,
     'image': None,
     'security_group': 'default',
 }
 
-def create_servers(count, names=None, type=None, os=None, region=None,
+def create_servers(count, names=None, type=None, os=None, placement=None,
                    bid=None, image=None, security_group=None):
     count = int(count)
     assert count == len(names)
@@ -123,29 +123,50 @@ def create_servers(count, names=None, type=None, os=None, region=None,
     if image is None:
         ubuntu_version = os.split(' ')[-1]
         # TODO: allow setting things like root-store
-        image_id = _get_image_id_for_size(type, ubuntu_version, prefer_ebs=False)
+        image = _get_image_id_for_size(type, ubuntu_version, prefer_ebs=False)
 
     if bid:
-        create_spot_instances(count=count, type=type, region=region,
-                              image_id=image_id, names=names, bid=bid,
-                              security_group=security_group)
+        instance_ids = create_spot_instances(
+            count=count, type=type, placement=placement,
+            image=image, names=names, bid=bid,
+            security_group=security_group)
     else:
-        create_on_demand_instances(count=count, type=type, region=region,
-                                   image_id=image_id, names=names,
-                                   security_group=security_group)
+        instance_ids = create_on_demand_instances(
+            count=count, type=type, placement=placement,
+            image=image, names=names,
+            security_group=security_group)
 
-    cache.uncache(all_nodes)
+    wait_for_instances_to_become_accessible(instance_ids)
+    nodes = [n for n in all_nodes() if n['id'] in instance_ids]
+    return nodes
 
-def create_on_demand_instances(count, type, region, image_id, names, security_group):
+def wait_for_instances_to_become_accessible(instance_ids):
+    while True:
+        nodes_ready = 0
+        nodes = cache.recache(all_nodes)
+        nodes = [n for n in nodes if n['id'] in instance_ids]
+        for node in nodes:
+            with fab.settings(hide('everything'), warn_only=True):
+                result = local('timeout 5 nc -zvv %s 22' % node['ip'])
+            if result.return_code == 0:
+                nodes_ready += 1
+        if nodes_ready == len(instance_ids):
+            return
+
+        print 'Waiting for instance%s to become accessible' % (
+            's' if len(instance_ids) > 1 else '')
+        time.sleep(5)
+
+def create_on_demand_instances(count, type, placement, image, names, security_group):
     print 'Creating %d EC2 %s instances' % (count, type)
 
     reservation = _ec2().run_instances(
-        image_id=image_id,
+        image_id=image,
         min_count=count,
         max_count=count,
         security_groups=[security_group],
         instance_type=type,
-        placement=region,
+        placement=placement,
         key_name=KEYPAIR_NAME,
     )
 
@@ -164,18 +185,20 @@ def create_on_demand_instances(count, type, region, image_id, names, security_gr
         time.sleep(5)
         [i.update() for i in reservation.instances]
 
-def create_spot_instances(count, type, region, image_id, names, bid, security_group):
+    return [i.id for i in reservation.instances]
+
+def create_spot_instances(count, type, placement, image, names, bid, security_group):
     bid = float(bid)
 
     puts('Creating spot requests for %d %s instance%s at $%.3f' % (
         count, type, 's' if count > 1 else '', bid))
     requests = _ec2().request_spot_instances(
         price=bid,
-        image_id=image_id,
+        image_id=image,
         count=count,
         security_groups=[security_group],
         instance_type=type,
-        placement=region,
+        placement=placement,
         key_name=KEYPAIR_NAME,
     )
 
@@ -203,7 +226,9 @@ def create_spot_instances(count, type, region, image_id, names, bid, security_gr
     for instance_id, name in zip(instance_ids, names):
         _set_instance_name(instance_id, name)
 
-def validate_create_options(type, os, region, bid, image, security_group):
+    return instance_ids
+
+def validate_create_options(type, os, placement, bid, image, security_group):
     if type is not None and type not in get_node_types():
         raise Exception('Unknown EC2 instance type: "%s"' % type)
 
@@ -215,16 +240,6 @@ def validate_create_options(type, os, region, bid, image, security_group):
 
     if os is None and image is None:
         raise Exception('You need to either specify an image AMI or use a shorthand os')
-
-    # TODO: allow all regions. this is ridiculous
-    if region is not None and region != 'us-east-1b':
-        raise Exception('us-east-1b is currently the only supported region. SORRY!!')
-
-def refresh_ip(server):
-    nodes = cache.recache(all_nodes)
-    for node in nodes:
-        if node['name'] == server.name and node['state'] == 'running':
-            return node['ip_address'], node['private_ip_address']
 
 def rename(role):
     current_node = _host_node()
@@ -493,27 +508,45 @@ def get_node_types():
 
     return node_types
 
+def instance_to_node(instance):
+    node = {}
+    node['id'] = instance.id
+    node['name'] = re.sub('^%s' % env.name_prefix, '', instance.tags['Name'])
+    node['type'] = instance.instance_type
+    node['security_group'] = instance.groups[0].name
+    node['placement'] = instance.placement
+    node['image'] = instance.image_id
+    node['state'] = instance.state
+    created = dateutil.parser.parse(instance.launch_time)
+    node['created'] = created.astimezone(dateutil.tz.tzlocal())
+    node['ip'] = instance.ip_address
+    node['internal_address'] = instance.private_dns_name
+    return node
+
 @cache.cached
 def all_nodes():
-    def format_node(node):
-        state = node.state
-        node = node.__dict__
-        del node['groups']
-        del node['block_device_mapping']
-        launch_time = dateutil.parser.parse(node['launch_time'])
-        node['launch_time'] = launch_time.astimezone(dateutil.tz.tzlocal())
-        node['name'] = node['tags']['Name']
-        node['name'] = re.sub('^%s' % env.name_prefix, '', node['name'])
-        node['size'] = node['instance_type']
-        node['state'] = state
-        node['status'] = state
-        node['provider'] = __name__
-        return node
-
     reservations = _ec2().get_all_instances()
-    nodes = [format_node(x) for r in reservations for x in r.instances
-             if 'Name' in x.tags and x.tags['Name'].startswith(env.name_prefix)]
+    nodes = [instance_to_node(x) for r in reservations for x in r.instances
+             if 'Name' in x.tags
+             and x.tags['Name'].startswith(env.name_prefix)
+             and x.state not in ('terminated', 'shutting-down')]
     return nodes
+
+def equivalent_create_options(options1, options2):
+    options1 = options1.copy()
+    options2 = options2.copy()
+
+    if options1['image'] is None:
+        options1['image'] = _get_image_id_for_size(
+            options1['type'], options1['os'].lower().split('ubuntu ')[1])
+    if options2['image'] is None:
+        options2['image'] = _get_image_id_for_size(
+            options2['type'], options2['os'].lower().split('ubuntu ')[1])
+
+    return (options1['type'] == options2['type']
+            and options1['placement'] == options2['placement']
+            and options1['security_group'] == options2['security_group']
+            and options1['image'] == options2['image'])
 
 def _ec2():
     if not hasattr(_ec2, 'client'):
@@ -521,7 +554,7 @@ def _ec2():
     return _ec2.client
 
 def _host_node():
-    return [x for x in all_nodes() if x['ip_address'] == env.host or x['public_dns_name'] == env.host][0]
+    return [x for x in all_nodes() if x['ip'] == env.host][0]
 
 def _host_role():
     return _host_node()['role']
@@ -569,4 +602,4 @@ settings = {
     'key_filename': SSH_KEY_FILENAME,
 }
 
-headintheclouds.add_provider(__name__, 'Amazon EC2')
+headintheclouds.add_provider('ec2', sys.modules[__name__])
