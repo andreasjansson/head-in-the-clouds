@@ -7,6 +7,7 @@ import uuid
 
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
+import fabric.network
 from fabric.colors import green, red
 from fabric.contrib.console import confirm
 
@@ -14,6 +15,8 @@ import headintheclouds
 from headintheclouds import docker
 
 __all__ = ['up']
+
+MULTI_THREADED = True
 
 @task
 @runs_once
@@ -165,9 +168,15 @@ class UpProcess(multiprocessing.Process):
         self.to_resolve = to_resolve
         self.queue = queue
 
+        if not MULTI_THREADED:
+            self.start = self.run
+
     def run(self):
         global env
         env = env.copy()
+
+        if MULTI_THREADED:
+            fabric.network.disconnect_all()
 
         self.thing.create()
         if isinstance(self.thing, ServerCreateGroup):
@@ -573,7 +582,6 @@ class Container(Thing):
 
     def create(self):
         with host_settings(self.host):
-            print '--------->>>>>>>>>>>> run_container %s' % self.host
             docker.run_container(
                 image=self.image, name=self.name,
                 command=self.command, environment=self.environment,

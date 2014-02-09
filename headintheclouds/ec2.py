@@ -116,14 +116,14 @@ create_server_defaults = {
 }
 
 def create_servers(count, names=None, type=None, os=None, placement=None,
-                   bid=None, image=None, security_group=None):
+                   bid=None, image=None, security_group=None, prefer_ebs=False):
     count = int(count)
     assert count == len(names)
 
     if image is None:
         ubuntu_version = os.split(' ')[-1]
         # TODO: allow setting things like root-store
-        image = _get_image_id_for_size(type, ubuntu_version, prefer_ebs=False)
+        image = _get_image_id_for_size(type, ubuntu_version, prefer_ebs=prefer_ebs)
 
     if bid:
         instance_ids = create_spot_instances(
@@ -228,7 +228,7 @@ def create_spot_instances(count, type, placement, image, names, bid, security_gr
 
     return instance_ids
 
-def validate_create_options(type, os, placement, bid, image, security_group):
+def validate_create_options(type, os, placement, bid, image, security_group, prefer_ebs=False):
     if type is not None and type not in get_node_types():
         raise Exception('Unknown EC2 instance type: "%s"' % type)
 
@@ -538,10 +538,12 @@ def equivalent_create_options(options1, options2):
 
     if options1['image'] is None:
         options1['image'] = _get_image_id_for_size(
-            options1['type'], options1['os'].lower().split('ubuntu ')[1])
+            options1['type'], options1['os'].lower().split('ubuntu ')[1],
+            prefer_ebs=False)
     if options2['image'] is None:
         options2['image'] = _get_image_id_for_size(
-            options2['type'], options2['os'].lower().split('ubuntu ')[1])
+            options2['type'], options2['os'].lower().split('ubuntu ')[1],
+            prefer_ebs=False)
 
     return (options1['type'] == options2['type']
             and options1['placement'] == options2['placement']

@@ -2,6 +2,7 @@ from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
 
 from headintheclouds import cloudtask, provider_by_name, this_provider
+from headintheclouds import cache
 
 @task
 @runs_once
@@ -45,7 +46,7 @@ def rename(role):
 
 @cloudtask
 def uncache():
-    util.cache().flush()
+    cache.flush()
 
 @cloudtask
 def ssh(cmd=''):

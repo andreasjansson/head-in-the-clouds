@@ -1,6 +1,5 @@
 import re
 import os
-import contextlib
 import simplejson as json
 import subprocess
 import dateutil.parser
@@ -86,15 +85,16 @@ def setup(directory=None, reboot=True):
     if not fabric.contrib.files.exists('~/.ssh/id_rsa'):
         fab.run('ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa')
 
-    with contextlib.nested(hide('everything'), settings(warn_only=True)):
+    with settings(hide('everything'), warn_only=True):
         if not fab.run('which docker').failed:
             return
 
     sudo('sh -c "wget -qO- https://get.docker.io/gpg | apt-key add -"')
     sudo('sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
     sudo('apt-get update')
-    sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install linux-image-extra-virtual')
-    sudo('DEBIAN_FRONTEND=noninteractive apt-get -y install lxc-docker-0.8.0')
+    sudo('apt-get -y install linux-image-extra-virtual')
+    sudo('apt-get -y install lxc-docker-0.7.6')
+
     sudo('apt-get -y install sshpass')
 
     if directory is not None:
@@ -144,11 +144,12 @@ def run(image, name=None, *port_specs, **kwargs):
                   environment=env_vars)
 
 @cloudtask
-@parallel
-@autodoc
+#@parallel
 def kill(process, rm=True):
-    ip = get_ip(process)
-    unbind_all(ip)
+    container = get_container(process)
+    if not container:
+        abort('No such container: %s' % process)
+    unbind_all(container['ip'])
 
     sudo('docker kill %s' % process)
     if rm:
@@ -156,7 +157,6 @@ def kill(process, rm=True):
 
 @cloudtask
 @parallel
-@autodoc
 def upstart(image, name=None, cmd='', respawn=True, n_instances=1, start=True, **kwargs):
     n_instances = int(n_instances)
     assert n_instances > 0
@@ -200,7 +200,6 @@ end script
             sudo('start %s' % name)
 
 @cloudtask
-@autodoc
 def pull(image):
     sudo('docker pull %s' % image)
 
@@ -251,9 +250,8 @@ def get_metadata(process):
     return json.loads(result)
 
 def get_ip(process):
-    info = get_metadata(process)
-    ip = info[0]['NetworkSettings']['IPAddress']
-    return ip
+    container = get_container(process)
+    return container['ip']
 
 def inside(process):
     ip = get_ip(process)
