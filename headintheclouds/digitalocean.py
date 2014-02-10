@@ -1,37 +1,70 @@
-import os
 import sys
 import re
 import urllib
 import dop.client
-from collections import defaultdict
+import time
 
-from fabric.api import *
-from fabric.contrib.console import confirm
+from fabric.api import * # pylint: disable=W0614,W0401
+import fabric.api as fab
 
-import util
-from util import cached, recache, uncache, autodoc
+import headintheclouds
+from headintheclouds import util, cache
 
-@task
-@runs_once
-@autodoc
-def create(role='idle', size='512MB', count=1):
+create_server_defaults = {
+    'size': '512MB',
+    'placement': 'New York 1',
+    'image': 'Ubuntu 12.04.3 x64',
+}
 
-    image = 'Ubuntu 12.04 x64'
-    region = 'New York 1'
+__all__ = []
+
+def create_servers(count, names=None, size=None, placement=None, image=None):
+    count = int(count)
+    assert count == len(names)
 
     size_id = _get_size_id(size)
     image_id = _get_image_id(image)
-    region_id = _get_region_id(region)
+    region_id = _get_region_id(placement)
     ssh_key_id = str(_get_ssh_key_id(SSH_KEY_NAME))
 
-    for _ in range(int(count)):
-        name = '%s%s' % (env.name_prefix, role)
-        image = _do().create_droplet(name, size_id, image_id, region_id, [ssh_key_id])
+    print 'Creating %d Digital Ocean %s droplets' % (count, size)
 
-    uncache(_get_all_nodes)
+    droplet_ids = []
+    for i in range(count):
+        if names:
+            name = names[i]
+        else:
+            name = 'unnamed-%d' % i
+        name = '%s%s' % (env.name_prefix, name)
+        droplet = _do().create_droplet(
+            name, size_id, image_id, region_id, [ssh_key_id])
+        droplet_ids.append(droplet.id)
 
-@task
-@parallel
+    while True:
+        nodes = cache.recache(all_nodes)
+        node_map = {n['id']: n for n in nodes}
+        n_active = 0
+        for id in droplet_ids:
+            if (id in node_map
+                and node_map[id]['state'] == 'active'
+                and node_map[id]['ip'] != -1):
+                n_active += 1
+        print 'Waiting for droplet%s to start [pending: %d, running: %d]' % (
+            's' if count > 1 else '',
+            count - n_active, n_active)
+
+        if n_active == count:
+            break
+
+        time.sleep(5)
+
+    return [node_map[id] for id in droplet_ids]
+
+def validate_create_options(size, placement, image):
+    _get_size_id(size)
+    _get_image_id(image)
+    _get_region_id(placement)
+
 def terminate():
     current_node = _host_node()
     if not current_node:
@@ -39,13 +72,11 @@ def terminate():
     droplet_id = current_node['id']
     puts('Terminating Digital Ocean droplet %s' % droplet_id)
     _do().destroy_droplet(droplet_id)
-    uncache(_get_all_nodes)
+    cache.uncache(all_nodes)
 
-@task
-@runs_once
 def nodes():
-    nodes = recache(_get_all_nodes)
-    util.print_table(sorted(nodes, key=lambda x: x['name']), ['name', 'size', 'ip_address', 'status'])
+    nodes = cache.recache(all_nodes)
+    util.print_table(nodes, ['name', 'size', 'ip', 'state'], sort='name')
 
 @task
 @runs_once
@@ -59,22 +90,14 @@ def pricing():
     util.print_table([get_node_types()[s] for s in sorted(sizes, key=get_size)],
                      ['memory', 'cores', 'disk', 'transfer', 'cost'])
 
-def rename(role):
+def rename(name):
     current_node = _host_node()
-    name = env.name_prefix + role
+    name = env.name_prefix + name
     response = _do().request('/droplets/%s/rename?name=%s' % (
         current_node['id'], urllib.quote_plus(name)))
     if response['status'] != 'OK':
         raise Exception('Rename failed: %s' % repr(response))
-    uncache(_get_all_nodes)
-
-def get_remote_environment(running_only=False):
-    nodes = _get_all_nodes()
-    environment = defaultdict(list)
-    for node in nodes:
-        environment[node['role']].append(node['ip_address'])
-    return environment
-get_local_environment = get_remote_environment
+    cache.uncache(all_nodes)
 
 def _do():
     if not hasattr(_do, 'client'):
@@ -82,51 +105,91 @@ def _do():
     return _do.client
 
 def _host_node():
-    nodes = [x for x in _get_all_nodes() if x['ip_address'] == env.host]
+    nodes = [x for x in all_nodes() if x['ip'] == env.host]
     if nodes:
         return nodes[0]
     return None
 
-@cached
-def _get_all_nodes():
+@cache.cached
+def all_nodes(running_only=False):
+    nodes = [droplet_to_node(x) for x in _do().show_active_droplets()
+             if x.name.startswith(env.name_prefix)
+             and (not running_only or x.status == 'active')]
+    return nodes
+
+def droplet_to_node(droplet):
 
     def flip_dict(d):
         d = {v: k for k, v in d.items()}
         return d
 
-    def format_node(node):
-        node = node.to_json()
-        node['region'] = flip_dict(_get_regions())[node['region_id']]
-        node['size'] = flip_dict(_get_sizes())[node['size_id']]
-        node['name'] = re.sub('^%s' % env.name_prefix, '', node['name'])
-        node['role'] = re.sub('^(.+)$', r'\1', node['name'])
-#        node['index'] = int(re.sub('^.+-([0-9]+)$',r'\1', node['name']))
-        node['provider'] = __name__
-        return node
+    node = {}
+    node['id'] = droplet.id
+    node['name'] = re.sub('^%s' % env.name_prefix, '', droplet.name)
+    node['size'] = flip_dict(_get_sizes())[droplet.size_id]
+    node['placement'] = flip_dict(_get_regions())[droplet.region_id]
+    try:
+        node['image'] = flip_dict(_get_images())[droplet.image_id]
+    except Exception:
+        deprecated_image_ids = {284203: 'Ubuntu 12.04'}
+        node['image'] = deprecated_image_ids.get(droplet.image_id, 'unknown')
+    node['ip'] = droplet.ip_address
+    node['state'] = droplet.status
 
-    nodes = [format_node(x) for x in _do().show_active_droplets()
-             if x.name.startswith(env.name_prefix)]
-    return nodes
+    return node
 
-@cached
+def equivalent_create_options(options1, options2):
+    options1 = options1.copy()
+    options2 = options2.copy()
+
+    try:
+        options1['size'] = _get_sizes()[options1['size']]
+    except Exception:
+        pass
+    try:
+        options1['placement'] = _get_regions()[options1['placement']]
+    except Exception:
+        pass
+    try:
+        options1['image'] = _get_images()[options1['image']]
+    except Exception:
+        pass
+    try:
+        options2['size'] = _get_sizes()[options2['size']]
+    except Exception:
+        pass
+    try:
+        options2['placement'] = _get_regions()[options2['placement']]
+    except Exception:
+        pass
+    try:
+        options2['image'] = _get_images()[options2['image']]
+    except Exception:
+        pass
+
+    return (options1['size'] == options2['size']
+            and options1['placement'] == options2['placement']
+            and options1['image'] == options2['image'])
+
+@cache.cached
 def _get_sizes():
     sizes = [x.to_json() for x in _do().sizes()]
     sizes = {x['name']: x['id'] for x in sizes}
     return sizes
 
-@cached
+@cache.cached
 def _get_images():
     images = [s.to_json() for s in _do().images()]
     images = {s['name']: s['id'] for s in images}
     return images
 
-@cached
+@cache.cached
 def _get_regions():
     regions = [x.to_json() for x in _do().regions()]
     regions = {x['name']: x['id'] for x in regions}
     return regions
 
-@cached
+@cache.cached
 def _get_ssh_keys():
     ssh_keys = [s.to_json() for s in _do().all_ssh_keys()]
     ssh_keys = {s['name']: s['id'] for s in ssh_keys}
@@ -155,25 +218,6 @@ def _get_ssh_key_id(ssh_key):
     if not ssh_key in ssh_keys:
         raise Exception('Unknown ssh_key: %s' % ssh_key)
     return ssh_keys[ssh_key]
-
-CLIENT_ID = util.env_var('DIGITAL_OCEAN_CLIENT_ID')
-API_KEY = util.env_var('DIGITAL_OCEAN_API_KEY')
-SSH_KEY_FILENAME = util.env_var('DIGITAL_OCEAN_SSH_KEY_FILENAME')
-SSH_KEY_NAME = util.env_var('DIGITAL_OCEAN_SSH_KEY_NAME')
-
-if not hasattr(env, 'all_nodes'):
-    env.all_nodes = {}
-env.all_nodes.update({x['ip_address']: x for x in _get_all_nodes() if x['ip_address']})
-if not hasattr(env, 'providers'):
-    env.providers = [__name__]
-else:
-    env.providers.append(__name__)
-
-provider_name = 'Digital Ocean'
-settings = {
-    'user': 'root',
-    'key_filename': SSH_KEY_FILENAME,
-}
 
 def get_node_types():
     return {
@@ -248,3 +292,16 @@ def get_node_types():
             'transfer': '10TB',
         },
     }
+
+CLIENT_ID = util.env_var('DIGITAL_OCEAN_CLIENT_ID')
+API_KEY = util.env_var('DIGITAL_OCEAN_API_KEY')
+SSH_KEY_FILENAME = util.env_var('DIGITAL_OCEAN_SSH_KEY_FILENAME')
+SSH_KEY_NAME = util.env_var('DIGITAL_OCEAN_SSH_KEY_NAME')
+
+provider_name = 'Digital Ocean'
+settings = {
+    'user': 'root',
+    'key_filename': SSH_KEY_FILENAME,
+}
+
+headintheclouds.add_provider('digitalocean', sys.modules[__name__])
