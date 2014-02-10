@@ -18,8 +18,8 @@ __all__ = ['up']
 
 MULTI_THREADED = True
 
-@task
 @runs_once
+@task
 def up(name, filename=None):
     if filename is None:
         filename = '%s.yml' % name
@@ -96,7 +96,7 @@ def update_servers_with_existing(servers, existing_servers):
 
 def find_existing_servers(names):
     servers = {}
-    for node in headintheclouds.all_nodes():
+    for node in headintheclouds.all_nodes(running_only=True):
         if node['name'] in names:
             server = Server(active=True, **node)
             with host_settings(server):

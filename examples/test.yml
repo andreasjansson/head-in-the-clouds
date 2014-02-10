@@ -1,6 +1,6 @@
 test:
   provider: ec2
-  type: m1.small
+  size: m1.small
   image: ubuntu 12.04
   placement: us-east-1c
   containers:
@@ -15,7 +15,7 @@ test:
 
 scratch:
   provider: ec2
-  type: m1.small
+  size: m1.small
   image: ubuntu 12.04
   containers:
     baz:

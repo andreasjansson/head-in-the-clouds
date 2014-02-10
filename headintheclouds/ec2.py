@@ -44,6 +44,39 @@ def spot_requests():
 def cancel_spot_request():
     pass
 
+create_server_defaults = {
+    'size': 'm1.small',
+    'placement': 'us-east-1b',
+    'bid': None,
+    'image': 'ubuntu 12.04',
+    'security_group': 'default',
+}
+
+def create_servers(count, names=None, size=None, placement=None,
+                   bid=None, image=None, security_group=None, prefer_ebs=False):
+    count = int(count)
+    assert count == len(names)
+
+    if image.lower().startswith('ubuntu'):
+        ubuntu_version = image.split(' ')[-1]
+        # TODO: allow setting things like root-store
+        image = _get_image_id_for_size(size, ubuntu_version, prefer_ebs=prefer_ebs)
+
+    if bid:
+        instance_ids = create_spot_instances(
+            count=count, size=size, placement=placement,
+            image=image, names=names, bid=bid,
+            security_group=security_group)
+    else:
+        instance_ids = create_on_demand_instances(
+            count=count, size=size, placement=placement,
+            image=image, names=names,
+            security_group=security_group)
+
+    wait_for_instances_to_become_accessible(instance_ids)
+    nodes = [n for n in all_nodes() if n['id'] in instance_ids]
+    return nodes
+
 def pricing():
     now = datetime.datetime.now()
     one_day_ago = now - datetime.timedelta(days=1)
@@ -103,41 +136,8 @@ def reboot():
 
 def nodes():
     nodes = cache.recache(all_nodes)
-    util.print_table(nodes, ['name', 'type', 'ip', 'internal_address', 'state', 'created'])
+    util.print_table(nodes, ['name', 'size', 'ip', 'internal_address', 'state', 'created'])
 
-
-create_server_defaults = {
-    'type': 'm1.small',
-    'placement': 'us-east-1b',
-    'bid': None,
-    'image': 'ubuntu 12.04',
-    'security_group': 'default',
-}
-
-def create_servers(count, names=None, type=None, placement=None,
-                   bid=None, image=None, security_group=None, prefer_ebs=False):
-    count = int(count)
-    assert count == len(names)
-
-    if image.lower().startswith('ubuntu'):
-        ubuntu_version = image.split(' ')[-1]
-        # TODO: allow setting things like root-store
-        image = _get_image_id_for_size(type, ubuntu_version, prefer_ebs=prefer_ebs)
-
-    if bid:
-        instance_ids = create_spot_instances(
-            count=count, type=type, placement=placement,
-            image=image, names=names, bid=bid,
-            security_group=security_group)
-    else:
-        instance_ids = create_on_demand_instances(
-            count=count, type=type, placement=placement,
-            image=image, names=names,
-            security_group=security_group)
-
-    wait_for_instances_to_become_accessible(instance_ids)
-    nodes = [n for n in all_nodes() if n['id'] in instance_ids]
-    return nodes
 
 def wait_for_instances_to_become_accessible(instance_ids):
     while True:
@@ -156,15 +156,15 @@ def wait_for_instances_to_become_accessible(instance_ids):
             's' if len(instance_ids) > 1 else '')
         time.sleep(5)
 
-def create_on_demand_instances(count, type, placement, image, names, security_group):
-    print 'Creating %d EC2 %s instances' % (count, type)
+def create_on_demand_instances(count, size, placement, image, names, security_group):
+    print 'Creating %d EC2 %s instances' % (count, size)
 
     reservation = _ec2().run_instances(
         image_id=image,
         min_count=count,
         max_count=count,
         security_groups=[security_group],
-        instance_type=type,
+        instance_type=size,
         placement=placement,
         key_name=KEYPAIR_NAME,
     )
@@ -177,7 +177,7 @@ def create_on_demand_instances(count, type, placement, image, names, security_gr
         status_counts = [(status, statuses.count(status))
                          for status in sorted(set(statuses))]
         print 'Waiting for instance%s to start [%s]' % (
-            's' if len(reservation.instances) > 1 else '',
+            's' if count > 1 else '',
             ', '.join(['%s: %d' % s for s in status_counts]))
         
         # TODO: handle error
@@ -186,17 +186,17 @@ def create_on_demand_instances(count, type, placement, image, names, security_gr
 
     return [i.id for i in reservation.instances]
 
-def create_spot_instances(count, type, placement, image, names, bid, security_group):
+def create_spot_instances(count, size, placement, image, names, bid, security_group):
     bid = float(bid)
 
     puts('Creating spot requests for %d %s instance%s at $%.3f' % (
-        count, type, 's' if count > 1 else '', bid))
+        count, size, 's' if count > 1 else '', bid))
     requests = _ec2().request_spot_instances(
         price=bid,
         image_id=image,
         count=count,
         security_groups=[security_group],
-        instance_type=type,
+        instance_type=size,
         placement=placement,
         key_name=KEYPAIR_NAME,
     )
@@ -227,9 +227,9 @@ def create_spot_instances(count, type, placement, image, names, bid, security_gr
 
     return instance_ids
 
-def validate_create_options(type, placement, bid, image, security_group, prefer_ebs=False):
-    if type is not None and type not in get_node_types():
-        raise Exception('Unknown EC2 instance type: "%s"' % type)
+def validate_create_options(size, placement, bid, image, security_group, prefer_ebs=False):
+    if size is not None and size not in get_node_types():
+        raise Exception('Unknown EC2 instance size: "%s"' % size)
 
     if image.lower().startswith('ubuntu'):
         if image.split(' ')[-1] not in [v for v, _ in OS_ROOT_STORE_AMI_MAP]:
@@ -238,9 +238,9 @@ def validate_create_options(type, placement, bid, image, security_group, prefer_
     if image is None:
         raise Exception('You need to either specify an image AMI or use a shorthand os')
 
-def rename(role):
+def rename(name):
     current_node = _host_node()
-    _set_instance_name(current_node['id'], role)
+    _set_instance_name(current_node['id'], name)
 
 @cache.cached
 def get_node_types():
@@ -422,7 +422,7 @@ def get_node_types():
         'c3.4xlarge': 16,
         'c3.8xlarge': 32, 
     }
-    disk_type_map = {
+    disk_size_map = {
         'm1.small': 'ephemeral',
         'm1.medium': 'ephemeral',
         'm1.large': 'ephemeral',
@@ -483,33 +483,44 @@ def get_node_types():
                       if r['region'] == 'us-east'][0]
     for instance_type in instance_types:
         for size_block in instance_type['sizes']:
-            node_type = {}
+            node_size = {}
             size = size_block['size']
             value_columns = size_block['valueColumns']
-            node_type['linux_cost'] = float([c['prices']['USD'] for c in value_columns
+            node_size['linux_cost'] = float([c['prices']['USD'] for c in value_columns
                                              if c['name'] == 'linux'][0])
             if size in memory_map:
-                node_type['memory'] = memory_map[size] / 1000.0
+                node_size['memory'] = memory_map[size] / 1000.0
             if size in disk_map:
-                node_type['disk'] = disk_map[size]
+                node_size['disk'] = disk_map[size]
             if size in platform_map:
-                node_type['architecture'] = platform_map[size]
+                node_size['architecture'] = platform_map[size]
             if size in compute_units_map:
-                node_type['compute_units'] = compute_units_map[size]
+                node_size['compute_units'] = compute_units_map[size]
             if size in virtual_cores_map:
-                node_type['cores'] = virtual_cores_map[size]
+                node_size['cores'] = virtual_cores_map[size]
             if size in misc_map:
-                node_type['misc'] = misc_map[size]
+                node_size['misc'] = misc_map[size]
 
-            node_types[size] = node_type
+            node_types[size] = node_size
 
     return node_types
+
+@cache.cached
+def all_nodes(running_only=False):
+    reservations = _ec2().get_all_instances()
+    nodes = [instance_to_node(x)
+             for r in reservations for x in r.instances
+             if 'Name' in x.tags
+             and x.tags['Name'].startswith(env.name_prefix)
+             and x.state not in ('terminated', 'shutting-down')
+             and (not running_only or x.state == 'running')]
+    return nodes
 
 def instance_to_node(instance):
     node = {}
     node['id'] = instance.id
     node['name'] = re.sub('^%s' % env.name_prefix, '', instance.tags['Name'])
-    node['type'] = instance.instance_type
+    node['size'] = instance.instance_type
     node['security_group'] = instance.groups[0].name
     node['placement'] = instance.placement
     node['image'] = instance.image_id
@@ -520,29 +531,20 @@ def instance_to_node(instance):
     node['internal_address'] = instance.private_dns_name
     return node
 
-@cache.cached
-def all_nodes():
-    reservations = _ec2().get_all_instances()
-    nodes = [instance_to_node(x) for r in reservations for x in r.instances
-             if 'Name' in x.tags
-             and x.tags['Name'].startswith(env.name_prefix)
-             and x.state not in ('terminated', 'shutting-down')]
-    return nodes
-
 def equivalent_create_options(options1, options2):
     options1 = options1.copy()
     options2 = options2.copy()
 
     if options1['image'].lower().startswith('ubuntu '):
         options1['image'] = _get_image_id_for_size(
-            options1['type'], options1['image'][' '][-1],
+            options1['size'], options1['image'][' '][-1],
             prefer_ebs=False)
     if options2['image'].lower().startswith('ubuntu '):
         options2['image'] = _get_image_id_for_size(
-            options2['type'], options2['image'][' '][-1],
+            options2['size'], options2['image'][' '][-1],
             prefer_ebs=False)
 
-    return (options1['type'] == options2['type']
+    return (options1['size'] == options2['size']
             and options1['placement'] == options2['placement']
             and options1['security_group'] == options2['security_group']
             and options1['image'] == options2['image'])

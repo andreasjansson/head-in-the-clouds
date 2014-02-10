@@ -1,6 +1,5 @@
 import sys
 import re
-from functools import wraps
 import collections
 
 from fabric.api import * # pylint: disable=W0614,W0401
@@ -16,13 +15,6 @@ env.name_prefix = getattr(env, 'name_prefix', 'HITC-')
 
 # hack tocheck if the user has provided -H option
 _has_hosts_option = bool(env.hosts)
-
-def cloudtask(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        with provider_settings():
-            func(*args, **kwargs)
-    return task(wrapper)
 
 def add_provider(name, module):
     for node in module.all_nodes():
@@ -66,10 +58,10 @@ def this_provider():
             return env.node_providers[env.host]
         return unknown_provider
 
-def all_nodes():
+def all_nodes(running_only=False):
     nodes = []
     for name, provider in env.providers.items():
-        for node in provider.all_nodes():
+        for node in provider.all_nodes(running_only=running_only):
             node['provider'] = name
             nodes.append(node)
     return nodes

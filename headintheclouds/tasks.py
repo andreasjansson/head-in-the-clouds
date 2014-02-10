@@ -1,8 +1,16 @@
+from functools import wraps
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
 
-from headintheclouds import cloudtask, provider_by_name, this_provider
+from headintheclouds import provider_settings, provider_by_name, this_provider
 from headintheclouds import cache
+
+def cloudtask(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with provider_settings():
+            func(*args, **kwargs)
+    return task(wrapper)
 
 @task
 @runs_once
@@ -10,6 +18,7 @@ def pricing():
     for name, provider in env.providers.items():
         print name
         provider.pricing()
+        print
 
 @task
 @runs_once
@@ -17,6 +26,7 @@ def nodes():
     for name, provider in env.providers.items():
         print name
         provider.nodes()
+        print
 
 @task
 @runs_once
@@ -27,7 +37,7 @@ def create(provider, count=1, name=None, **kwargs):
     options.update(kwargs)
     names = [name] * count
     provider.validate_create_options(**options)
-    provider.create_servers(count, names, **options)
+    return provider.create_servers(count, names, **options)
 
 @cloudtask
 @parallel
@@ -44,7 +54,8 @@ def reboot():
 def rename(role):
     this_provider().rename(role)
 
-@cloudtask
+@task
+@runs_once
 def uncache():
     cache.flush()
 

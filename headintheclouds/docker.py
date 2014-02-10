@@ -7,8 +7,8 @@ import fabric.contrib.files
 import fabric.api as fab
 import fabric.context_managers
 from fabric.api import *
-from headintheclouds import cloudtask
-from headintheclouds.util import autodoc, print_table
+from headintheclouds.tasks import cloudtask
+from headintheclouds.util import print_table
 import collections
 from StringIO import StringIO
 
@@ -28,14 +28,12 @@ def sshfs(process, remote_dir, local_dir):
         'docker_ip': ip, 'remote_dir': remote_dir, 'local_dir': local_dir})
 
 @cloudtask
-@autodoc
 def ps():
     containers = get_containers()
     print_table(containers, ['name', 'ip', 'ports', 'created', 'image'], sort='name')
 
 @cloudtask
 @parallel
-@autodoc
 def bind(process, port_spec1, *other_port_specs):
     '''
     Bind one or more ports to the container.
@@ -55,7 +53,6 @@ def bind(process, port_spec1, *other_port_specs):
 
 @cloudtask
 @parallel
-@autodoc
 def unbind(process, port_spec1, *other_port_specs):
     '''
     Unbind one or more ports from the container.
@@ -116,7 +113,6 @@ def setup(directory=None, reboot=True):
 
 @cloudtask
 @parallel
-@autodoc
 def run(image, name=None, *port_specs, **kwargs):
     '''
     Run a docker container
@@ -210,7 +206,6 @@ def pull(image):
     sudo('docker pull %s' % image)
 
 @cloudtask
-@autodoc
 def inspect(process):
     sudo('docker inspect %s' % process)
 
