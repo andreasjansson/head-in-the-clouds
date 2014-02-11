@@ -117,11 +117,7 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
     processes = make_processes(servers, dependency_graph, queue, things_to_delete)
     runnable_processes = [p for p in processes.values() if p.is_resolved()]
 
-    thing_index = {}
-    for server in servers.values():
-        thing_index[server.thing_name()] = server
-        for container in server.containers.values():
-            thing_index[container.thing_name()] = container
+    thing_index = build_thing_index(servers)
 
     for process in runnable_processes:
         process.thing = thing_index[process.thing_name]
@@ -134,7 +130,7 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
         for thing in completed_things:
 
             thing_index[thing.thing_name()] = thing
-            refresh_things(thing_index)
+            refresh_thing_index(thing_index)
 
             dependents = dependency_graph.get_dependents(thing.thing_name())
             for thing_name, attr_is in dependents.items():
@@ -150,7 +146,15 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
                     print '--------->>>>>>>>>>>> starting %s' % process.thing
                     process.start()
 
-def refresh_things(thing_index):
+def build_thing_index(servers):
+    thing_index = {}
+    for server in servers.values():
+        thing_index[server.thing_name()] = server
+        for container in server.containers.values():
+            thing_index[container.thing_name()] = container
+    return thing_index
+
+def refresh_thing_index(thing_index):
     # TODO this starting to get really ugly. need to refactor
     for thing_name, thing in thing_index.items():
         if isinstance(thing, Server):
@@ -187,14 +191,15 @@ class UpProcess(multiprocessing.Process):
         self.to_resolve = to_resolve
         self.queue = queue
         self.thing = None
-        self.thing_to_delete = None
+        self.thing_to_delete = thing_to_delete
 
         if not MULTI_THREADED:
             self.start = self.run
 
     def run(self):
-        global env
-        env = env.copy()
+        #global env
+        #env = env.copy()
+        # probably unnecessary
 
         if MULTI_THREADED:
             fabric.network.disconnect_all()
@@ -298,7 +303,7 @@ def resolve_and_get_dependencies(servers):
 
         for container in server.containers.values():
             for value, attr in all_field_attrs(container):
-                resolve_or_add_dependency(value, attr, dependency_graph, server, container)
+                resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container)
 
             # need its own server to start first
             if not server.active:
@@ -307,13 +312,16 @@ def resolve_and_get_dependencies(servers):
     return dependency_graph
 
 def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container=None):
-    variables, _ = parse_variables(value)
-    for i, var in enumerate(variables):
+    variables = parse_variables(value)
+    for var_string, var in variables.items():
         parts = var.split('.')
         if parts[0] == 'host':
             depends_server = server.name
         else:
             depends_server = parts[0]
+            if depends_server not in servers:
+                depends_server += '-0' # default to first
+
         if parts[1] == 'containers':
             if not container:
                 raise ConfigException(
@@ -331,14 +339,13 @@ def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, co
         else:
             depends = servers[depends_server]
 
-        could_resolve = dependent.resolve(depends, attr, i)
+        could_resolve = dependent.resolve(depends, attr, var_string)
         if not could_resolve:
             dependency_graph.add((server.name, container.name if container else None),
-                                 (attr, i), (depends_server, depends_container))
+                                 (attr, var_string), (depends_server, depends_container))
 
 def parse_variables(value):
-    variables = []
-    var_strings = []
+    variables = {} # dict {var_string: variable}
     while '$' in str(value):
         start = value.index('$')
         if start + 1 >= len(value):
@@ -359,15 +366,19 @@ def parse_variables(value):
         if var == '':
             raise ConfigException('Syntax error in variable')
 
-        variables.append(var)
-        var_strings.append(value[start:end])
-        value = value[end:]
-    return variables, var_strings
+        var_string = value[start:end]
+        variables[var_string] = var
 
-def resolve(value, thing, i):
-    variables, var_strings = parse_variables(value)
-    resolved_value = get_resolved_value(variables[i], thing)
-    return value.replace(var_strings[i], str(resolved_value))
+        value = value[end:]
+
+    return variables
+
+def resolve(value, thing, var_string):
+    variables = parse_variables(value)
+    resolved_value = get_resolved_value(variables[var_string], thing)
+    if resolved_value is None:
+        return None
+    return value.replace(var_string, str(resolved_value))
 
 def get_resolved_value(variable, thing):
     parts = variable.split('.')
@@ -380,7 +391,7 @@ def get_resolved_value(variable, thing):
 def get_variable_expression(thing, attr):
     parts = attr.split(':')
     field = parts.pop(0)
-    if field not in thing.get_create_options():
+    if field not in thing.possible_options():
         raise ConfigException('Invalid attribute: %s' % field)
 
     indices = []
@@ -411,14 +422,12 @@ def all_field_attrs(thing):
         else:
             return [(value, indices)]
 
-    for field in thing.get_create_options():
-        if not hasattr(thing, field):
-            continue
-
+    for field in thing.__dict__:
         attr = field
         value = getattr(thing, attr)
-        for x, indices in recurse(value, []):
-            yield x, attr + ''.join([':%d' % i for i in indices])
+        if attr != 'name' and value is not None:
+            for x, indices in recurse(value, []):
+                yield x, attr + ''.join([':%d' % i for i in indices])
 
 def parse_string(value):
     if not isinstance(value, basestring):
@@ -450,7 +459,7 @@ def parse_ports(value):
         raise error
     ports = []
     for x in value:
-        split = x.split(':')
+        split = str(x).split(':')
         if len(split) == 1:
             fr = to = split[0]
         elif len(split) == 2:
@@ -484,7 +493,10 @@ class Thing(object):
 
     def resolve(self, thing, attr, i):
         new_value = resolve(get_field_value(self, attr), thing, i)
+        if new_value is None:
+            return False
         update_field(self, attr, new_value)
+        return True
 
     def update(self, props):
         for prop, value in props.items():
@@ -554,6 +566,10 @@ class Server(Thing):
                                and v is not None})
         return create_options
 
+    def possible_options(self):
+        return (set(self.get_create_options()) |
+                set(self.__dict__) - set(['containers']))
+
     def properties(self):
         return {k: v for k, v in self.__dict__.items()
                 if k not in ('containers')
@@ -602,6 +618,10 @@ class Container(Thing):
 
     def get_create_options(self):
         return self.fields.keys()
+
+    def possible_options(self):
+        return (set(self.fields) |
+                set(self.__dict__))
 
     def thing_name(self):
         return (self.host.name, self.name)
