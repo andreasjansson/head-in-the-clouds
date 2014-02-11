@@ -336,6 +336,8 @@ def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, co
                 raise ConfigException(
                     'Server to container dependencies are currently unsupported')
             depends_container = parts[2]
+            if depends_container not in servers[depends_server].containers:
+                depends_container += '-0' # default to first
         else:
             depends_container = None
 
