@@ -3,6 +3,9 @@
 #         * might be a use case with containers
 #           waiting for other containers to start
 #           before they can
+#       some sort of $initscript clause?
+#         * useful for setting up swap drives
+#           and things like that
 
 import os
 import yaml

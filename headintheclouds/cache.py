@@ -7,11 +7,16 @@ from functools import wraps
 
 FILENAME = '~/.hitc/sqlite_cache.db'
 
+NO_CACHE = os.environ.get('HITC_NO_CACHE', None) == 'true'
+
 _cursor = None
 
 python_set = set
 
 def get(key):
+    if NO_CACHE:
+        return None
+
     _db().execute('''
         SELECT value, expire
         FROM cache
@@ -28,6 +33,9 @@ def get(key):
     return None
 
 def set(key, value, ttl=None):
+    if NO_CACHE:
+        return None
+
     if ttl is None:
         expire = 0
     else:
@@ -39,6 +47,9 @@ def set(key, value, ttl=None):
     ''', (key, cPickle.dumps(value), expire))
 
 def delete(key, expire=None):
+    if NO_CACHE:
+        return None
+
     if expire:
         if not isinstance(expire, (float, int)):
             raise ValueError('expire must be a number')
@@ -55,6 +66,9 @@ def delete(key, expire=None):
 def flush():
     global _cursor
 
+    if NO_CACHE:
+        return None
+
     try:
         os.unlink(_filename())
     except OSError, e:
@@ -63,6 +77,9 @@ def flush():
     _cursor = None
 
 def size():
+    if NO_CACHE:
+        return None
+
     _db().execute('''
         SELECT COUNT(*)
         FROM cache
@@ -99,6 +116,9 @@ def cached(func):
     return wrapper
 
 def recache(fn, *args, **kwargs):
+    if NO_CACHE:
+        return None
+
     if not hasattr(fn, '__call__'):
         raise Exception('%s is not a function' % str(fn))
     if not hasattr(fn, '_cached'):
@@ -107,6 +127,9 @@ def recache(fn, *args, **kwargs):
     return fn(*args, **kwargs)
 
 def uncache(fn, *args, **kwargs):
+    if NO_CACHE:
+        return None
+
     if not hasattr(fn, '__call__'):
         raise Exception('%s is not a function' % str(fn))
     if not hasattr(fn, '_cached'):
