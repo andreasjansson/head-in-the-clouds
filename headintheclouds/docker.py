@@ -240,7 +240,7 @@ def run_container(image, name=None, command=None, environment=None,
 
     if ports:
         ip = get_ip(name)
-        for port, public_port in parse_port_specs(ports):
+        for port, public_port in ports:
             bind_process(ip, port, public_port)
 
 def remove_container(id):
@@ -290,7 +290,8 @@ def get_container(id):
             local_ports.remove(local_port)
     for port in local_ports:
         ports.append((port, None))
-    ports = [[fr, to] for fr, to in ports] # make it a list cause ensemble wants it
+    int_or_none = lambda x: None if x is None else int(x)
+    ports = [[int_or_none(fr), int_or_none(to)] for fr, to in ports] # make it a list cause ensemble wants it
     environment = metadata['Config']['Env']
     environment = [e.split('=', 1) for e in environment]
     state = 'running' if metadata['State']['Running'] else 'stopped'

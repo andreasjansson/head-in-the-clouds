@@ -111,10 +111,9 @@ def _host_node():
     return None
 
 @cache.cached
-def all_nodes(running_only=False):
+def all_nodes():
     nodes = [droplet_to_node(x) for x in _do().show_active_droplets()
-             if x.name.startswith(env.name_prefix)
-             and (not running_only or x.status == 'active')]
+             if x.name.startswith(env.name_prefix)]
     return nodes
 
 def droplet_to_node(droplet):
@@ -135,6 +134,7 @@ def droplet_to_node(droplet):
         node['image'] = deprecated_image_ids.get(droplet.image_id, 'unknown')
     node['ip'] = droplet.ip_address
     node['state'] = droplet.status
+    node['running'] = droplet.status == 'active'
 
     return node
 

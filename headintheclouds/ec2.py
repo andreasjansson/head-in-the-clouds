@@ -125,13 +125,13 @@ def pricing():
 
 def terminate():
     instance_id = _host_node()['id']
-    puts('Terminating EC2 instance %s' % instance_id)
+    print 'Terminating EC2 instance %s' % instance_id
     _ec2().terminate_instances([instance_id])
     cache.uncache(all_nodes)
 
 def reboot():
     instance_id = _host_node()['id']
-    puts('Rebooting EC2 instance %s' % instance_id)
+    print 'Rebooting EC2 instance %s' % instance_id
     _ec2().reboot_instances([instance_id])
 
 def nodes():
@@ -157,7 +157,10 @@ def wait_for_instances_to_become_accessible(instance_ids):
         time.sleep(5)
 
 def create_on_demand_instances(count, size, placement, image, names, security_group):
-    print 'Creating %d EC2 %s instances' % (count, size)
+    if count > 1:
+        print 'Creating %d EC2 %s instances' % (count, size)
+    else:
+        print 'Creating EC2 %s instance' % size
 
     reservation = _ec2().run_instances(
         image_id=image,
@@ -176,9 +179,11 @@ def create_on_demand_instances(count, size, placement, image, names, security_gr
         statuses = [i.state for i in reservation.instances]
         status_counts = [(status, statuses.count(status))
                          for status in sorted(set(statuses))]
-        print 'Waiting for instance%s to start [%s]' % (
-            's' if count > 1 else '',
-            ', '.join(['%s: %d' % s for s in status_counts]))
+        if count > 1:
+            print 'Waiting for instances to start [%s]' % (
+                ', '.join(['%s: %d' % s for s in status_counts]))
+        else:
+            print 'Waiting for instance to start [%s]' % (statuses[0])
         
         # TODO: handle error
         time.sleep(5)
@@ -189,8 +194,12 @@ def create_on_demand_instances(count, size, placement, image, names, security_gr
 def create_spot_instances(count, size, placement, image, names, bid, security_group):
     bid = float(bid)
 
-    puts('Creating spot requests for %d %s instance%s at $%.3f' % (
-        count, size, 's' if count > 1 else '', bid))
+    if count > 1:
+        print 'Creating spot requests for %d %s instances at $%.3f' % (
+            count, size, bid)
+    else:
+        print 'Creating spot request %s instance at $%.3f' % (size, bid)
+
     requests = _ec2().request_spot_instances(
         price=bid,
         image_id=image,
@@ -209,8 +218,13 @@ def create_spot_instances(count, size, placement, image, names, bid, security_gr
         statuses = [r.status.code for r in requests]
         status_counts = [(status, statuses.count(status))
                          for status in sorted(set(statuses))]
-        print 'Waiting for spot requests to be fulfilled [%s]' % (
-            ', '.join(['%s: %d' % s for s in status_counts]))
+
+        if count > 1:
+            print 'Waiting for spot requests to be fulfilled [%s]' % (
+                ', '.join(['%s: %d' % s for s in status_counts]))
+        else:
+            print 'Waiting for spot request to be fulfilled [%s]' % (
+                statuses[0])
 
         if all([status == 'fulfilled' for status in statuses]):
             break
@@ -506,14 +520,13 @@ def get_node_types():
     return node_types
 
 @cache.cached
-def all_nodes(running_only=False):
+def all_nodes():
     reservations = _ec2().get_all_instances()
     nodes = [instance_to_node(x)
              for r in reservations for x in r.instances
              if 'Name' in x.tags
              and x.tags['Name'].startswith(env.name_prefix)
-             and x.state not in ('terminated', 'shutting-down')
-             and (not running_only or x.state == 'running')]
+             and x.state not in ('terminated', 'shutting-down')]
     return nodes
 
 def instance_to_node(instance):
@@ -525,6 +538,7 @@ def instance_to_node(instance):
     node['placement'] = instance.placement
     node['image'] = instance.image_id
     node['state'] = instance.state
+    node['running'] = instance.state == 'running'
     created = dateutil.parser.parse(instance.launch_time)
     node['created'] = created.astimezone(dateutil.tz.tzlocal())
     node['ip'] = instance.ip_address
@@ -537,11 +551,11 @@ def equivalent_create_options(options1, options2):
 
     if options1['image'].lower().startswith('ubuntu '):
         options1['image'] = _get_image_id_for_size(
-            options1['size'], options1['image'][' '][-1],
+            options1['size'], options1['image'].split(' ')[-1],
             prefer_ebs=False)
     if options2['image'].lower().startswith('ubuntu '):
         options2['image'] = _get_image_id_for_size(
-            options2['size'], options2['image'][' '][-1],
+            options2['size'], options2['image'].split(' ')[-1],
             prefer_ebs=False)
 
     return (options1['size'] == options2['size']

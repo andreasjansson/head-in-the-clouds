@@ -96,8 +96,8 @@ def update_servers_with_existing(servers, existing_servers):
 
 def find_existing_servers(names):
     servers = {}
-    for node in headintheclouds.all_nodes(running_only=True):
-        if node['name'] in names:
+    for node in headintheclouds.all_nodes():
+        if node['name'] in names and node['running']:
             server = Server(active=True, **node)
             with host_settings(server):
                 containers = docker.get_containers()
@@ -641,10 +641,25 @@ class Container(Thing):
     def is_equivalent(self, other):
         return (self.name == other.name
                 and self.image == other.image
-                and self.command == other.command
+                and self.is_equivalent_command(other)
                 and self.is_equivalent_environment(other)
-                and set(self.ports) == set(other.ports)
+                and self.are_equivalent_ports(other)
                 and set(self.volumes) == set(other.volumes))
+
+    def is_equivalent_command(self, other):
+        # can't know for sure, so playing safe
+        # self will be the remote machine!
+        return (other.command is None
+                or self.command == other.command)
+
+    def are_equivalent_ports(self, other):
+        # same here, can't know for sure,
+        # self will be the remote machine!
+        public_ports = []
+        for fr, to in self.ports:
+            if to is not None:
+                public_ports.append([fr, to])
+        return sorted(public_ports) == sorted(other.ports)
 
     def is_equivalent_environment(self, other):
         ignored_keys = set(['HOME', 'PATH']) # for now

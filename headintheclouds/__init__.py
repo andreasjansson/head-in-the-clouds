@@ -58,10 +58,10 @@ def this_provider():
             return env.node_providers[env.host]
         return unknown_provider
 
-def all_nodes(running_only=False):
+def all_nodes():
     nodes = []
     for name, provider in env.providers.items():
-        for node in provider.all_nodes(running_only=running_only):
+        for node in provider.all_nodes():
             node['provider'] = name
             nodes.append(node)
     return nodes
