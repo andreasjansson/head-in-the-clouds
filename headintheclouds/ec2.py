@@ -136,7 +136,7 @@ def reboot():
 
 def nodes():
     nodes = cache.recache(all_nodes)
-    util.print_table(nodes, ['name', 'size', 'ip', 'internal_address', 'state', 'created'])
+    util.print_table(nodes, ['name', 'size', 'ip', 'internal_address', 'state', 'created'], sort='name')
 
 
 def wait_for_instances_to_become_accessible(instance_ids):

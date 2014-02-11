@@ -1,3 +1,9 @@
+# TODO: refactor and document and make nice
+#       support explicit $depends clause?
+#         * might be a use case with containers
+#           waiting for other containers to start
+#           before they can
+
 import os
 import yaml
 import re
