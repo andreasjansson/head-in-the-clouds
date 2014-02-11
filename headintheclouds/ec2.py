@@ -146,7 +146,7 @@ def wait_for_instances_to_become_accessible(instance_ids):
         nodes = [n for n in nodes if n['id'] in instance_ids]
         for node in nodes:
             with fab.settings(hide('everything'), warn_only=True):
-                result = local('timeout 5 nc -zvv %s 22' % node['ip'])
+                result = local('nc -w 5 -zvv %s 22' % node['ip'])
             if result.return_code == 0:
                 nodes_ready += 1
         if nodes_ready == len(instance_ids):
