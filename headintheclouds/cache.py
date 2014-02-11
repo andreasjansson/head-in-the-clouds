@@ -117,7 +117,7 @@ def cached(func):
 
 def recache(fn, *args, **kwargs):
     if NO_CACHE:
-        return None
+        return fn(*args, **kwargs)
 
     if not hasattr(fn, '__call__'):
         raise Exception('%s is not a function' % str(fn))
