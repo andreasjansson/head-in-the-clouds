@@ -312,6 +312,22 @@ def get_container(id):
         'state': state,
     }
 
+#hack
+def pull_image(name):
+    with settings(hide('everything')):
+        sudo('docker pull %s' % name)
+    with settings(hide('everything'), warn_only=True):
+        result = sudo('docker inspect %s' % name)
+    if result.failed:
+        return None
+    result = json.loads(result)
+    return result[0]['id']
+
+#hack
+def get_image_id(container_name):
+    metadata = get_metadata(container_name)
+    return metadata[0]['Image']
+
 def get_container_ids():
     container_ids = []
     with hide('everything'):

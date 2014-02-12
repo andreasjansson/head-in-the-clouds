@@ -1,3 +1,12 @@
+# BUGS:
+#
+# * things with variables in properties always get restarted [CRITICAL]
+#   - prolly need to merge update_servers_with_existing and
+#     resolve_and_get_dependencies
+#
+# * pulling image just for equivalence check is slow, there must be a
+#   way to get that through the api
+
 # TODO:
 #
 # * refactor and document and make nice
@@ -45,6 +54,8 @@ def up(name, filename=None):
         config = yaml.load(f)
 
     servers = parse_config(config)
+
+    print 'Calculating changes...'
 
     existing_servers = find_existing_servers(servers.keys())
     new_servers, new_containers, changing_servers, changing_containers = update_servers_with_existing(
@@ -646,6 +657,7 @@ class Container(Thing):
 
     def create(self):
         with host_settings(self.host):
+            docker.pull_image(self.image)
             container = docker.run_container(
                 image=self.image, name=self.name,
                 command=self.command, environment=self.environment,
@@ -659,11 +671,21 @@ class Container(Thing):
 
     def is_equivalent(self, other):
         return (self.name == other.name
-                and self.image == other.image
                 and self.is_equivalent_command(other)
                 and self.is_equivalent_environment(other)
                 and self.are_equivalent_ports(other)
-                and set(self.volumes) == set(other.volumes))
+                and set(self.volumes) == set(other.volumes)
+                and self.is_equivalent_image(other))
+
+    def is_equivalent_image(self, other):
+        if self.image != other.image:
+            return False
+
+        if self.image == other.image:
+            with host_settings(self.host):
+                pulled_image_id = docker.pull_image(other.image)
+                other_image_id = docker.get_image_id(other.name)
+            return pulled_image_id == other_image_id
 
     def is_equivalent_command(self, other):
         # can't know for sure, so playing safe
