@@ -1,11 +1,18 @@
-# TODO: refactor and document and make nice
-#       support explicit $depends clause?
-#         * might be a use case with containers
-#           waiting for other containers to start
-#           before they can
-#       some sort of $initscript clause?
-#         * useful for setting up swap drives
-#           and things like that
+# TODO:
+#
+# * refactor and document and make nice
+#
+# * support explicit $depends clause?
+#   - might be a use case with containers waiting for other containers 
+#     to start before they can
+#
+# * optional stacks on top of servers
+#   - a stack has a 'servers' clause, and $count, $template, etc.
+#           
+# * the ability to "up" a single stack/server/container
+#   - would ensemble.up:production,serverX update the serverX-0 or
+#     every serverX? need to be able to support both cases. I guess
+#     serverX would be the group and serverX-0 the instance.
 
 import os
 import yaml
@@ -639,10 +646,11 @@ class Container(Thing):
 
     def create(self):
         with host_settings(self.host):
-            docker.run_container(
+            container = docker.run_container(
                 image=self.image, name=self.name,
                 command=self.command, environment=self.environment,
                 ports=self.ports, volumes=self.volumes)
+            self.update(container)
         return [self]
 
     def delete(self):

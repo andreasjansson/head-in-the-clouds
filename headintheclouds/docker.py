@@ -238,10 +238,13 @@ def run_container(image, name=None, command=None, environment=None,
     command_line = ' '.join(parts)
     sudo(command_line)
 
+    container = get_container(name)
     if ports:
-        ip = get_ip(name)
+        ip = container['ip']
         for port, public_port in ports:
             bind_process(ip, port, public_port)
+
+    return container
 
 def remove_container(id):
     sudo('docker rm %s' % id)
@@ -261,7 +264,7 @@ def inside(process):
     ip = get_ip(process)
     return fabric.context_managers.settings(gateway='%s@%s:%s' % (env.user, env.host, env.port),
                                             host=ip, host_string='root@%s' % ip, user='root',
-                                            key_filename=None, password='root', no_keys=True, allow_agent=False)
+                                            password='root', no_keys=True, allow_agent=False)
 
 def get_containers():
     containers = []
