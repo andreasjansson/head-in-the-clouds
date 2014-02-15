@@ -1,8 +1,10 @@
 import time
 import unittest2 as unittest
 import yaml
+import mox
 
 from headintheclouds import ensemble
+from headintheclouds import docker
 from headintheclouds import ec2
 
 def container_equals(self, other):
@@ -102,6 +104,19 @@ class TestVariables(unittest.TestCase):
 
 class TestDependencyGraph(unittest.TestCase):
 
+    def test_remove(self):
+        graph = ensemble.DependencyGraph()
+        graph.add('b', (1, 2), 'a')
+        graph.add('b', (1, 3), 'a')
+        self.assertEquals(graph.graph, {'a': {'b'}})
+        self.assertEquals(graph.inverse_graph, {'b': {'a'}})
+        graph.remove('b', (1, 2), 'a')
+        self.assertEquals(graph.graph, {'a': {'b'}})
+        self.assertEquals(graph.inverse_graph, {'b': {'a'}})
+        graph.remove('b', (1, 3), 'a')
+        self.assertEquals(graph.graph, {})
+        self.assertEquals(graph.inverse_graph, {})
+
     def test_find_cycle_positive(self):
         graph = ensemble.DependencyGraph()
         graph.add('a', None, 'b')
@@ -131,6 +146,25 @@ class TestDependencyGraph(unittest.TestCase):
         graph.add('c', None, 'd')
         graph.add('b', None, 'c')
         self.assertIsNone(graph.find_cycle())
+
+    def test_get_free_nodes(self):
+        graph = ensemble.DependencyGraph()
+        graph.add('e', None, 'f')
+        graph.add('e', None, 'd')
+        graph.add('e', None, 'c')
+        graph.add('d', None, 'c')
+
+        all_nodes = set('abcdef')
+
+        self.assertEquals(graph.get_free_nodes(all_nodes), set(('a', 'b', 'c', 'f')))
+        graph.remove('d', None, 'c')
+        self.assertEquals(graph.get_free_nodes(all_nodes), set(('a', 'b', 'c', 'd', 'f')))
+        graph.remove('e', None, 'c')
+        self.assertEquals(graph.get_free_nodes(all_nodes), set(('a', 'b', 'c', 'd', 'f')))
+        graph.remove('e', None, 'd')
+        self.assertEquals(graph.get_free_nodes(all_nodes), set(('a', 'b', 'c', 'd', 'f')))
+        graph.remove('e', None, 'f')
+        self.assertEquals(graph.get_free_nodes(all_nodes), set(('a', 'b', 'c', 'd', 'e', 'f')))
 
 class TestExpandTemplate(unittest.TestCase):
 
@@ -186,8 +220,175 @@ class TestExpandTemplate(unittest.TestCase):
         self.assertRaises(ensemble.ConfigException, ensemble.expand_template,
                           config, templates)
 
-class TestResolveAndGetDependencies(unittest.TestCase):
-    pass # TODO
+class TestProcessDependencies(unittest.TestCase):
+
+    def setUp(self):
+        self.mox = mox.Mox()
+
+    def tearDown(self):
+        self.mox.UnsetStubs()
+
+    def test_new_servers(self):
+        foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small')
+        servers = {'foo-0': foo}
+        existing_servers = {}
+
+        expected_graph = {}
+        expected_changes = {'new_servers': {foo}}
+
+        dependency_graph, changes = ensemble.process_dependencies(servers, existing_servers)
+
+        self.assertEquals(dependency_graph.graph, expected_graph)
+        self.assertEquals(changes, expected_changes)
+
+    def test_new_containers(self):
+        foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small')
+
+        foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=foo,
+            )
+        }
+
+        servers = {'foo-0': foo}
+
+        existing_servers = {}
+
+        expected_graph = {('foo-0', None): {('foo-0', 'baz-0')}}
+        expected_changes = {'new_servers': {foo}, 'new_containers': set(foo.containers.values())}
+
+        dependency_graph, changes = ensemble.process_dependencies(servers, existing_servers)
+
+        self.assertEquals(dependency_graph.graph, expected_graph)
+        self.assertEquals(changes, expected_changes)
+
+    def test_changing_servers(self):
+        foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small')
+        foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=foo,
+            )
+        }
+        servers = {'foo-0': foo}
+
+        e_foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.large', active=True)
+        e_foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=e_foo,
+            )
+        }
+
+        existing_servers = {'foo-0': e_foo}
+
+        expected_graph = {('foo-0', None): {('foo-0', 'baz-0')}}
+        expected_changes = {'changing_servers': {foo}, 'changing_containers': set(foo.containers.values())}
+
+        dependency_graph, changes = ensemble.process_dependencies(servers, existing_servers)
+
+        self.assertEquals(dependency_graph.graph, expected_graph)
+        self.assertEquals(changes, expected_changes)
+
+    def test_changing_containers(self):
+        foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small')
+        foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=foo,
+                command='/bin/qux'
+            )
+        }
+        servers = {'foo-0': foo}
+
+        e_foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small', active=True)
+        e_foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=e_foo,
+                command='/bin/bar',
+                active=True,
+            )
+        }
+
+        existing_servers = {'foo-0': e_foo}
+
+        expected_graph = {}
+        expected_changes = {'changing_containers': set(foo.containers.values())}
+
+        dependency_graph, changes = ensemble.process_dependencies(servers, existing_servers)
+
+        self.assertEquals(dependency_graph.graph, expected_graph)
+        self.assertEquals(changes, expected_changes)
+
+    def test_absent_containers(self):
+        foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small')
+        servers = {'foo-0': foo}
+
+        e_foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small', active=True)
+        e_foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=e_foo,
+                active=True,
+            )
+        }
+
+        existing_servers = {'foo-0': e_foo}
+
+        expected_graph = {}
+        expected_changes = {'absent_containers': set(e_foo.containers.values())}
+
+        dependency_graph, changes = ensemble.process_dependencies(servers, existing_servers)
+
+        self.assertEquals(dependency_graph.graph, expected_graph)
+        self.assertEquals(changes, expected_changes)
+
+    def test_existing_parameterised_container(self):
+        foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small')
+        bar = ensemble.Server(name='bar-0', provider='ec2', size='m1.small')
+
+        foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=foo,
+                environment=[['FOO', '${host.ip} ${bar.ip}']],
+            )
+        }
+
+        servers = {'foo-0': foo, 'bar-0': bar}
+
+        e_foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small', ip='1.2.3.4', active=True)
+        e_bar = ensemble.Server(name='bar-0', provider='ec2', size='m1.small', ip='5.4.3.2', active=True)
+
+        e_foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=e_foo,
+                environment=[['FOO', '1.2.3.4 5.4.3.2']],
+                active=True,
+            )
+        }
+
+        existing_servers = {'foo-0': e_foo, 'bar-0': e_bar}
+
+        expected_graph = {}
+        expected_changes = {}
+
+        self.mox.StubOutWithMock(docker, 'pull_image')
+        self.mox.StubOutWithMock(docker, 'get_image_id')
+        docker.pull_image(None).AndReturn(None)
+        docker.get_image_id('baz-0').AndReturn(None)
+
+        self.mox.ReplayAll()
+
+        dependency_graph, changes = ensemble.process_dependencies(servers, existing_servers)
+
+        self.assertEquals(dependency_graph.graph, expected_graph)
+        self.assertEquals(changes, expected_changes)
+
+        self.mox.VerifyAll()
 
 class TestParseServer(unittest.TestCase):
 
@@ -273,7 +474,7 @@ class TestMultiprocess(unittest.TestCase):
     def test_server_group(self):
         graph = ensemble.DependencyGraph()
         servers = {'s%d' % i: DummyServer('s%d' % i) for i in range(3)}
-        ensemble.create_things(servers, graph, [], [])
+        ensemble.create_things(servers, graph, [], [], [])
 
     def test_child_container(self):
         s1 = DummyServer('s1')
@@ -281,9 +482,9 @@ class TestMultiprocess(unittest.TestCase):
         s1.containers = {'c1': c1}
         servers = {'s1': s1}
         graph = ensemble.DependencyGraph()
-        graph.add(('s1', 'c1'), None, ('s1', None))
+        graph.add(('s1', 'c1'), ensemble.IS_ACTIVE, ('s1', None))
 
-        ensemble.create_things(servers, graph, [], [])
+        ensemble.create_things(servers, graph, [], [], [])
 
     def test_multiple_dependencies(self):
         pass
@@ -295,12 +496,14 @@ class DummyServer(ensemble.Server):
 
     def create(self):
         time.sleep(0.01)
+        self.active = True
         return [self]
 
 class DummyContainer(ensemble.Container):
 
     def create(self):
         time.sleep(0.01)
+        self.active = True
         return [self]
 
 class TestParseRealConfigs(unittest.TestCase):
@@ -421,9 +624,17 @@ bar:
             ]),
         }
 
-        dependency_graph = ensemble.resolve_and_get_dependencies(servers)
+        expected_changes = {
+            'new_servers': {servers['foo-0'], servers['foo-1'], servers['bar-0']},
+            'new_containers': (set(servers['foo-0'].containers.values()) |
+                               set(servers['foo-1'].containers.values()) |
+                               set(servers['bar-0'].containers.values())),
+        }
+
+        dependency_graph, changes = ensemble.process_dependencies(servers, {})
 
         self.assertEquals(dependency_graph.graph, expected_graph)
+        self.assertEquals(changes, expected_changes)
 
         self.assertEquals(servers['foo-0'].containers['baz-0'].environment[0][1], '${bar.ip}')
         self.assertEquals(servers['foo-0'].containers['baz-0'].environment[1][1], 'foo-0-${host.ip}')

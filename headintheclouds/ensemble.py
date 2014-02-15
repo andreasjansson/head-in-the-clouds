@@ -1,11 +1,7 @@
 # BUGS:
 #
-# * things with variables in properties always get restarted [CRITICAL]
-#   - prolly need to merge update_servers_with_existing and
-#     resolve_and_get_dependencies
-#
 # * pulling image just for equivalence check is slow, there must be a
-#   way to get that through the api
+#   way to get that through an api
 
 # TODO:
 #
@@ -43,6 +39,8 @@ __all__ = ['up']
 
 MULTI_THREADED = True
 
+IS_ACTIVE = ('IS_ACTIVE', None)
+
 @runs_once
 @task
 def up(name, filename=None):
@@ -58,68 +56,116 @@ def up(name, filename=None):
     print 'Calculating changes...'
 
     existing_servers = find_existing_servers(servers.keys())
-    new_servers, new_containers, changing_servers, changing_containers = update_servers_with_existing(
-        servers, existing_servers)
+    dependency_graph, changes = process_dependencies(servers, existing_servers)
 
-    dependency_graph = resolve_and_get_dependencies(servers)
     cycle_node = dependency_graph.find_cycle()
     if cycle_node:
         raise ConfigException('Cycle detected')
 
-    confirm_changes(new_servers, new_containers, changing_servers, changing_containers)
+    confirm_changes(changes)
+    create_things(servers, dependency_graph, changes['changing_servers'],
+                  changes['changing_containers'], changes['absent_containers'])
 
-    create_things(servers, dependency_graph, changing_servers, changing_containers)
+def process_dependencies(servers, existing_servers):
+    new_index = build_thing_index(servers)
+    existing_index = build_thing_index(existing_servers)
 
-def confirm_changes(new_servers, new_containers, changing_servers, changing_containers):
-    if new_servers:
+    dependency_graph = get_raw_dependency_graph(servers)
+    cycle_node = dependency_graph.find_cycle()
+    if cycle_node:
+        raise ConfigException('Cycle detected')
+
+    all_changing_things = set()
+    all_new_things = set()
+
+    remaining = set(new_index)
+    while True:
+        free_nodes = dependency_graph.get_free_nodes(remaining)
+        if not free_nodes:
+            break
+
+        remaining -= free_nodes
+
+        for thing_name in free_nodes:
+            changing_things, new_things = resolve_existing(thing_name, new_index, existing_index, dependency_graph)
+            all_changing_things |= changing_things
+            all_new_things |= new_things
+
+    for thing_name in remaining:
+        changing_things, new_things = resolve_existing(thing_name, new_index, existing_index, dependency_graph)
+        all_changing_things |= changing_things
+        all_new_things |= new_things
+
+    changes = collections.defaultdict(set)
+
+    for thing in all_changing_things:
+        if isinstance(thing, Container):
+            changes['changing_containers'].add(thing)
+        else:
+            changes['changing_servers'].add(thing)
+
+    for thing in all_new_things:
+        if isinstance(thing, Container):
+            changes['new_containers'].add(thing)
+        else:
+            changes['new_servers'].add(thing)
+
+    for server in existing_servers.values():
+        for container in server.containers.values():
+            if container.thing_name() not in new_index:
+                changes['absent_containers'].add(container)
+
+    return dependency_graph, changes
+
+def resolve_existing(thing_name, new_index, existing_index, dependency_graph):
+    changing_things = set()
+    new_things = set()
+
+    new = new_index[thing_name]
+    if thing_name in existing_index:
+        existing = existing_index[thing_name]
+        if existing.is_equivalent(new):
+            new.update(existing.__dict__)
+        else:
+            changing_things.add(new)
+    else:
+        new_things.add(new)
+
+    resolve_dependents(dependency_graph, new, new_index)
+
+    return changing_things, new_things
+
+def resolve_dependents(dependency_graph, depends, thing_index):
+    dependents = dependency_graph.get_dependents(depends.thing_name())
+
+    for dependent_name, attr_is in dependents.items():
+        dependent = thing_index[dependent_name]
+        for attr, i in attr_is:
+            resolved = dependent.resolve(depends, attr, i)
+            if resolved:
+                dependency_graph.remove(dependent_name, (attr, i), depends.thing_name())
+
+def confirm_changes(changes):
+    if changes.get('new_servers', None):
         print yellow('The following servers will be created:')
-        for server in new_servers:
+        for server in changes['new_servers']:
             print '%s' % server.name
-    if new_containers:
+    if changes.get('new_containers', None):
         print yellow('The following containers will be created:')
-        for container in new_containers:
+        for container in changes['new_containers']:
             print '%s (%s)' % (container.name, container.host.name)
-    if changing_servers:
+    if changes.get('changing_servers', None):
         print red('The following servers will restart:')
-        for server in changing_servers:
+        for server in changes['changing_servers']:
             print '%s' % server.name
-    if changing_containers:
+    if changes.get('changing_containers', None):
         print red('The following containers will restart:')
-        for container in changing_containers:
+        for container in changes['changing_containers']:
             print '%s (%s)' % (container.name, container.host.name)
 
-    if new_servers or new_containers or changing_servers or changing_containers:
+    if changes:
         if not confirm('Do you wish to continue?'):
             abort('Aborted')
-
-def update_servers_with_existing(servers, existing_servers):
-    new_servers = []
-    new_containers = []
-    changing_servers = []
-    changing_containers = []
-
-    for server_name, server in servers.items():
-        if server_name in existing_servers:
-            existing_server = existing_servers[server_name]
-
-            if existing_server.is_equivalent(server):
-                server.update(existing_server.properties())
-
-                for container_name, container in server.containers.items():
-                    if container_name in existing_server.containers:
-                        existing_container = existing_server.containers[container_name]
-                        if existing_container.is_equivalent(container):
-                            container.update(existing_container.properties())
-                        else:
-                            changing_containers.append(existing_container)
-                    else:
-                        new_containers.append(container)
-            else:
-                changing_servers.append(existing_server)
-        else:
-            new_servers.append(server)
-
-    return new_servers, new_containers, changing_servers, changing_containers
 
 def find_existing_servers(names):
     servers = {}
@@ -134,44 +180,38 @@ def find_existing_servers(names):
             servers[server.name] = server
     return servers
 
-def create_things(servers, dependency_graph, changing_servers, changing_containers):
+def create_things(servers, dependency_graph, changing_servers, changing_containers, absent_containers):
     # TODO: handle errors
 
     things_to_delete = {thing.thing_name(): thing
                          for thing in changing_servers + changing_containers}
 
-    queue = multiprocessing.Queue()
-    processes = make_processes(servers, dependency_graph, queue, things_to_delete)
-    runnable_processes = [p for p in processes.values() if p.is_resolved()]
-
     thing_index = build_thing_index(servers)
 
-    for process in runnable_processes:
-        process.thing = thing_index[process.thing_name]
-        process.start()
+    queue = multiprocessing.Queue()
+    processes = make_processes(servers, queue, things_to_delete)
 
-    n_completed = 0
-    while n_completed < len(processes):
+    for container in absent_containers:
+        container.terminate()
+
+    remaining = set(thing_index)
+    while True:
+        free_nodes = dependency_graph.get_free_nodes(remaining)
+        remaining -= free_nodes
+        
+        for thing_name in free_nodes:
+            processes[thing_name].thing = thing_index[thing_name]
+            processes[thing_name].start()
+
         completed_things = queue.get()
-        n_completed += 1
         for thing in completed_things:
-
             thing_index[thing.thing_name()] = thing
             refresh_thing_index(thing_index)
 
-            dependents = dependency_graph.get_dependents(thing.thing_name())
-            for thing_name, attr_is in dependents.items():
-                dependent = thing_index[thing_name]
-                process = processes[dependent.thing_name()]
-                process.to_resolve -= 1
-                for attr_i in attr_is:
-                    if attr_i:
-                        attr, i = attr_i
-                        dependent.resolve(thing, attr, i) 
-                if process.is_resolved():
-                    process.thing = dependent
-                    print '--------->>>>>>>>>>>> starting %s' % process.thing
-                    process.start()
+            resolve_dependents(dependency_graph, thing, thing_index)
+
+        if not remaining:
+            break
 
 def build_thing_index(servers):
     thing_index = {}
@@ -190,20 +230,18 @@ def refresh_thing_index(thing_index):
         elif isinstance(thing, Container):
             thing.host = thing_index[thing.host.thing_name()]
 
-def make_processes(servers, dependency_graph, queue, things_to_delete):
+def make_processes(servers, queue, things_to_delete):
     processes = {}
 
     for server in servers.values():
         if not server.active:
-            depends = dependency_graph.get_depends(server.thing_name())
-            process = UpProcess(server.thing_name(), len(depends), queue)
+            process = UpProcess(server.thing_name(), queue)
             process.thing_to_delete = things_to_delete.get(server.thing_name(), None)
             processes[server.thing_name()] = process
 
         for container in server.containers.values():
             if not container.active:
-                depends = dependency_graph.get_depends(container.thing_name())
-                process = UpProcess(container.thing_name(), len(depends), queue)
+                process = UpProcess(container.thing_name(), queue)
                 process.thing_to_delete = things_to_delete.get(container.thing_name(), None)
                 processes[container.thing_name()] = process
 
@@ -211,11 +249,10 @@ def make_processes(servers, dependency_graph, queue, things_to_delete):
 
 class UpProcess(multiprocessing.Process):
 
-    def __init__(self, thing_name, to_resolve, queue, thing_to_delete=None):
+    def __init__(self, thing_name, queue, thing_to_delete=None):
         super(UpProcess, self).__init__()
         # works because we don't need to mutate thing anymore once we've forked
         self.thing_name = thing_name
-        self.to_resolve = to_resolve
         self.queue = queue
         self.thing = None
         self.thing_to_delete = thing_to_delete
@@ -236,9 +273,6 @@ class UpProcess(multiprocessing.Process):
 
         created_things = self.thing.create()
         self.queue.put(created_things)
-
-    def is_resolved(self):
-        return self.to_resolve == 0
 
 def parse_config(config):
     if '$templates' in config:
@@ -288,7 +322,7 @@ def parse_container(container_name, spec, server, templates):
     containers = {}
     expand_template(spec, templates)
 
-    valid_fields = set(['$count']) | set(Container.fields)
+    valid_fields = {'$count'} | set(Container.fields)
     if set(spec) - valid_fields:
         raise ConfigException(
             'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
@@ -321,7 +355,7 @@ def expand_template(spec, templates):
             if k not in spec:
                 spec[k] = v
 
-def resolve_and_get_dependencies(servers):
+def get_raw_dependency_graph(servers):
     dependency_graph = DependencyGraph()
 
     for server in servers.values():
@@ -332,9 +366,7 @@ def resolve_and_get_dependencies(servers):
             for value, attr in all_field_attrs(container):
                 resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container)
 
-            # need its own server to start first
-            if not server.active:
-                dependency_graph.add(container.thing_name(), None, server.thing_name())
+            dependency_graph.add(container.thing_name(), IS_ACTIVE, server.thing_name())
 
     return dependency_graph
 
@@ -359,19 +391,8 @@ def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, co
         else:
             depends_container = None
 
-        if container:
-            dependent = container
-        else:
-            dependent = server
-        if depends_container:
-            depends = servers[depends_server].containers[depends_container]
-        else:
-            depends = servers[depends_server]
-
-        could_resolve = dependent.resolve(depends, attr, var_string)
-        if not could_resolve:
-            dependency_graph.add((server.name, container.name if container else None),
-                                 (attr, var_string), (depends_server, depends_container))
+        dependency_graph.add((server.name, container.name if container else None),
+                             (attr, var_string), (depends_server, depends_container))
 
 def parse_variables(value):
     variables = {} # dict {var_string: variable}
@@ -521,6 +542,9 @@ def host_settings(server):
 class Thing(object):
 
     def resolve(self, thing, attr, i):
+        if (attr, i) == IS_ACTIVE:
+            return thing.active
+
         new_value = resolve(get_field_value(self, attr), thing, i)
         if new_value is None:
             return False
@@ -597,7 +621,7 @@ class Server(Thing):
 
     def possible_options(self):
         return (set(self.get_create_options()) |
-                set(self.__dict__) - set(['containers']))
+                set(self.__dict__) - {'containers'})
 
     def properties(self):
         return {k: v for k, v in self.__dict__.items()
@@ -670,7 +694,8 @@ class Container(Thing):
             docker.kill(self.name)
 
     def is_equivalent(self, other):
-        return (self.name == other.name
+        return (self.host.is_equivalent(other.host)
+                and self.name == other.name
                 and self.is_equivalent_command(other)
                 and self.is_equivalent_environment(other)
                 and self.are_equivalent_ports(other)
@@ -703,7 +728,7 @@ class Container(Thing):
         return sorted(public_ports) == sorted(other.ports)
 
     def is_equivalent_environment(self, other):
-        ignored_keys = set(['HOME', 'PATH']) # for now
+        ignored_keys = {'HOME', 'PATH'} # for now
         this_dict = {k: v for k, v in self.environment}
         other_dict = {k: v for k, v in other.environment}
         for k in set(this_dict) | set(other_dict):
@@ -754,6 +779,22 @@ class DependencyGraph(object):
         self.inverse_graph[dependent].add(depends)
         self.dependent_attrs[depends][dependent].add(attr_i)
 
+    def remove(self, dependent, attr_i, depends):
+        self.dependent_attrs[depends][dependent] = self.dependent_attrs[depends][dependent] - {attr_i}
+        if not self.dependent_attrs[depends][dependent]:
+            del self.dependent_attrs[depends][dependent]
+
+            self.graph[depends] = self.graph[depends] - {dependent}
+            if not self.graph[depends]:
+                del self.graph[depends]
+
+            self.inverse_graph[dependent] = self.inverse_graph[dependent] - {depends}
+            if not self.inverse_graph[dependent]:
+                del self.inverse_graph[dependent]
+
+            if not self.dependent_attrs[depends]:
+                del self.dependent_attrs[depends]
+
     def get_depends(self, dependent):
         return self.inverse_graph[dependent]
 
@@ -761,7 +802,7 @@ class DependencyGraph(object):
         return self.dependent_attrs[depends]
 
     def find_cycle(self):
-        nodes = set([])
+        nodes = set()
         for depends, dependent_list in self.graph.items():
             nodes.add(depends)
             nodes |= dependent_list
@@ -792,6 +833,9 @@ class DependencyGraph(object):
                     node = stack.pop()
 
         return None
+
+    def get_free_nodes(self, all_nodes):
+        return all_nodes - set(self.inverse_graph)
 
 class ConfigException(Exception):
     def __init__(self, message, server_name=None, container_name=None):
