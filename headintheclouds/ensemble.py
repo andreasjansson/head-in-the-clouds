@@ -20,11 +20,12 @@
 #     serverX would be the group and serverX-0 the instance.
 
 import os
+import sys
 import yaml
 import re
 import collections
 import multiprocessing
-import uuid
+import simplejson as json
 
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
@@ -53,7 +54,8 @@ def up(name, filename=None):
 
     servers = parse_config(config)
 
-    print 'Calculating changes...'
+    sys.stdout.write('Calculating changes...')
+    sys.stdout.flush()
 
     existing_servers = find_existing_servers(servers.keys())
     dependency_graph, changes = process_dependencies(servers, existing_servers)
@@ -125,7 +127,7 @@ def resolve_existing(thing_name, new_index, existing_index, dependency_graph):
     if thing_name in existing_index:
         existing = existing_index[thing_name]
         if existing.is_equivalent(new):
-            new.update(existing.__dict__)
+            new.update(existing.properties())
         else:
             changing_things.add(new)
     else:
@@ -178,13 +180,16 @@ def find_existing_servers(names):
                 container = Container(host=server, active=True, **container)
                 server.containers[container.name] = container
             servers[server.name] = server
+        sys.stdout.write('.')
+        sys.stdout.flush()
+
     return servers
 
 def create_things(servers, dependency_graph, changing_servers, changing_containers, absent_containers):
     # TODO: handle errors
 
     things_to_delete = {thing.thing_name(): thing
-                         for thing in changing_servers + changing_containers}
+                         for thing in changing_servers | changing_containers}
 
     thing_index = build_thing_index(servers)
 
@@ -194,8 +199,8 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
     for container in absent_containers:
         container.terminate()
 
-    remaining = set(thing_index)
-    while True:
+    remaining = set(processes)
+    while remaining:
         free_nodes = dependency_graph.get_free_nodes(remaining)
         remaining -= free_nodes
         
@@ -209,9 +214,6 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
             refresh_thing_index(thing_index)
 
             resolve_dependents(dependency_graph, thing, thing_index)
-
-        if not remaining:
-            break
 
 def build_thing_index(servers):
     thing_index = {}
@@ -261,9 +263,7 @@ class UpProcess(multiprocessing.Process):
             self.start = self.run
 
     def run(self):
-        #global env
-        #env = env.copy()
-        # probably unnecessary
+        print '>>>>>>>>>>>>>>>>>>>>>>>>> starting %s' % self.thing
 
         if MULTI_THREADED:
             fabric.network.disconnect_all()
@@ -360,17 +360,34 @@ def get_raw_dependency_graph(servers):
 
     for server in servers.values():
         for value, attr in all_field_attrs(server):
-            resolve_or_add_dependency(value, attr, servers, dependency_graph, server)
+            new_value = resolve_or_add_dependency(value, attr, servers, dependency_graph, server)
+            if new_value:
+                update_field(server, attr, new_value)
 
         for container in server.containers.values():
             for value, attr in all_field_attrs(container):
-                resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container)
+                new_value = resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container)
+                if new_value:
+                    update_field(container, attr, new_value)
 
+            # dependency so that containers need to wait for the server to start
             dependency_graph.add(container.thing_name(), IS_ACTIVE, server.thing_name())
 
     return dependency_graph
 
+def get_servers_parameterised_json(servers):
+    server_dicts = {}
+    for server_name, server in servers.items():
+        keys = server.possible_options()
+        server_dicts[server_name] = {}
+        for key in keys:
+            server_dicts[server_name][key] = '${%s.%s}' % (server_name, key)
+    return json.dumps(server_dicts)
+
 def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container=None):
+    if value == '$servers':
+        value = get_servers_parameterised_json(servers)
+
     variables = parse_variables(value)
     for var_string, var in variables.items():
         parts = var.split('.')
@@ -394,6 +411,8 @@ def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, co
         dependency_graph.add((server.name, container.name if container else None),
                              (attr, var_string), (depends_server, depends_container))
 
+    return value
+
 def parse_variables(value):
     variables = {} # dict {var_string: variable}
     while '$' in str(value):
@@ -403,7 +422,7 @@ def parse_variables(value):
         elif value[start + 1] == '{':
             if '}' not in value:
                 raise ConfigException('Syntax error in variable')
-            end = value.index('}') + 1
+            end = value[start + 1:].index('}') + start + 2
             var = value[start + 2:end - 1]
         else:
             match = re.search('[^a-zA-Z0-9_]', value[start + 1:])
@@ -436,7 +455,7 @@ def get_resolved_value(variable, thing):
         prop = parts[3]
     else:
         prop = parts[1]
-    return thing.__dict__[prop]
+    return getattr(thing, prop, None)
         
 def get_variable_expression(thing, attr):
     parts = attr.split(':')
@@ -472,7 +491,7 @@ def all_field_attrs(thing):
         else:
             return [(value, indices)]
 
-    for field in thing.__dict__:
+    for field in thing.properties():
         attr = field
         value = getattr(thing, attr)
         if attr != 'name' and value is not None:
@@ -710,6 +729,10 @@ class Container(Thing):
             with host_settings(self.host):
                 pulled_image_id = docker.pull_image(other.image)
                 other_image_id = docker.get_image_id(other.name)
+
+                sys.stdout.write('.')
+                sys.stdout.flush()
+
             return pulled_image_id == other_image_id
 
     def is_equivalent_command(self, other):
@@ -745,26 +768,6 @@ class Container(Thing):
 
     def __repr__(self):
         return '<Container: %s (%s)>' % (self.name, self.host.name if self.host else None)
-
-class ServerCreateGroup(object):
-
-    def __init__(self, servers):
-        self.servers = servers
-
-    def create(self):
-        first = self.servers[0]
-        create_options = first.get_create_options()
-        names = [s.name for s in self.servers]
-        nodes = first.server_provider().create_servers(
-            count=len(self.servers), names=names, **create_options)
-        for server in self.servers:
-            node = [n for n in nodes if n['name'] == server.name][0]
-            server.update(node)
-            server.post_create()
-        return self.servers
-
-    def thing_name(self):
-        return uuid.uuid4() # never used, just random
 
 class DependencyGraph(object):
 

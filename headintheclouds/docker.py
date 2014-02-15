@@ -231,7 +231,7 @@ def run_container(image, name=None, command=None, environment=None,
             parts += ['-volume', volume]
     if environment:
         for key, value in environment.items():
-            parts += ['-e', '%s=%s' % (key, value)]
+            parts += ['-e', "%s='%s'" % (key, value)]
     parts += [image]
     if command:
         parts += ['%s' % command]

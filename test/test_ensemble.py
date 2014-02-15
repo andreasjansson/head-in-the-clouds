@@ -1,6 +1,7 @@
 import time
 import unittest2 as unittest
 import yaml
+import simplejson as json
 import mox
 
 from headintheclouds import ensemble
@@ -87,11 +88,11 @@ class TestVariables(unittest.TestCase):
                                        volumes=['vol1', 'vol2', 'vol3'],
                                        environment=[['foo', 'bar'], ['baz', 'qux']])
         expected = [
-            ('blah', 'image'),
             ('foo', 'environment:0:0'),
             ('bar', 'environment:0:1'),
             ('baz', 'environment:1:0'),
             ('qux', 'environment:1:1'),
+            ('blah', 'image'),
             ('vol1', 'volumes:0'),
             ('vol2', 'volumes:1'),
             ('vol3', 'volumes:2'),
@@ -101,6 +102,47 @@ class TestVariables(unittest.TestCase):
             (1001, 'ports:1:1'),
         ]
         self.assertEquals(list(ensemble.all_field_attrs(container)), expected)
+
+    def test_get_servers_parameterised_json(self):
+        foo = ensemble.Server(name='foo-0', provider='ec2', size='m1.small')
+        bar = ensemble.Server(name='bar-0', provider='ec2', size='m1.small')
+
+        foo.containers = {
+            'baz-0': ensemble.Container(
+                name='baz-0',
+                host=foo,
+                environment=[['FOO', '${host.ip} ${bar.ip}']],
+            )
+        }
+
+        servers = {'foo-0': foo, 'bar-0': bar}
+
+        servers_json = ensemble.get_servers_parameterised_json(servers)
+        server_dicts = json.loads(servers_json)
+
+        expected_dicts = {
+            'bar-0': {'active': '${bar-0.active}',
+                      'bid': '${bar-0.bid}',
+                      'image': '${bar-0.image}',
+                      'internal_address': '${bar-0.internal_address}',
+                      'ip': '${bar-0.ip}',
+                      'name': '${bar-0.name}',
+                      'placement': '${bar-0.placement}',
+                      'provider': '${bar-0.provider}',
+                      'security_group': '${bar-0.security_group}',
+                      'size': '${bar-0.size}'},
+            'foo-0': {'active': '${foo-0.active}',
+                      'bid': '${foo-0.bid}',
+                      'image': '${foo-0.image}',
+                      'internal_address': '${foo-0.internal_address}',
+                      'ip': '${foo-0.ip}',
+                      'name': '${foo-0.name}',
+                      'placement': '${foo-0.placement}',
+                      'provider': '${foo-0.provider}',
+                      'security_group': '${foo-0.security_group}',
+                      'size': '${foo-0.size}'}
+        }
+        self.assertEquals(server_dicts, expected_dicts)
 
 class TestDependencyGraph(unittest.TestCase):
 
@@ -462,19 +504,10 @@ class TestParseContainer(unittest.TestCase):
 
 class TestMultiprocess(unittest.TestCase):
 
-    def setUp(self):
-        self.old_server_create_group_create = ensemble.ServerCreateGroup.create
-        def new_server_create_group_create(self):
-            time.sleep(0.01)
-        ensemble.ServerCreateGroup.create = new_server_create_group_create
-
-    def tearDown(self):
-        ensemble.ServerCreateGroup.create = self.old_server_create_group_create
-
-    def test_server_group(self):
+    def test_servers(self):
         graph = ensemble.DependencyGraph()
         servers = {'s%d' % i: DummyServer('s%d' % i) for i in range(3)}
-        ensemble.create_things(servers, graph, [], [], [])
+        ensemble.create_things(servers, graph, set(), set(), set())
 
     def test_child_container(self):
         s1 = DummyServer('s1')
@@ -484,7 +517,7 @@ class TestMultiprocess(unittest.TestCase):
         graph = ensemble.DependencyGraph()
         graph.add(('s1', 'c1'), ensemble.IS_ACTIVE, ('s1', None))
 
-        ensemble.create_things(servers, graph, [], [], [])
+        ensemble.create_things(servers, graph, set(), set(), set())
 
     def test_multiple_dependencies(self):
         pass
