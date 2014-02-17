@@ -64,6 +64,7 @@ def validate_create_options(size, placement, image):
     _get_size_id(size)
     _get_image_id(image)
     _get_region_id(placement)
+    return {}
 
 def terminate():
     current_node = _host_node()

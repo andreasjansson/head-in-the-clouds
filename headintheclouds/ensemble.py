@@ -11,10 +11,7 @@
 #   - might be a use case with containers waiting for other containers 
 #     to start before they can
 #
-# * optional stacks on top of servers
-#   - a stack has a 'servers' clause, and $count, $template, etc.
-#           
-# * the ability to "up" a single stack/server/container
+# * the ability to "up" a single server/container
 #   - would ensemble.up:production,serverX update the serverX-0 or
 #     every serverX? need to be able to support both cases. I guess
 #     serverX would be the group and serverX-0 the instance.
@@ -63,6 +60,8 @@ def up(name, filename=None):
     cycle_node = dependency_graph.find_cycle()
     if cycle_node:
         raise ConfigException('Cycle detected')
+
+    # import ipdb; ipdb.set_trace()
 
     confirm_changes(changes)
     create_things(servers, dependency_graph, changes['changing_servers'],
@@ -523,24 +522,18 @@ def parse_list(value):
 
 def parse_ports(value):
     error = ConfigException(
-        '"ports" should be a list of colon-separated integers: %s' % value)
+        '"ports" should be a list in the format "FROM[:TO][/udp]": %s' % value)
     if not isinstance(value, list):
         raise error
     ports = []
     for x in value:
-        split = str(x).split(':')
-        if len(split) == 1:
-            fr = to = split[0]
-        elif len(split) == 2:
-            fr, to = split
-        else:
-            raise error
+        x = str(x)
         try:
-            fr = int(fr)
-            to = int(to)
+            fr, to, protocol = docker.parse_port_spec(x)
         except ValueError:
             raise error
-        ports.append([fr, to])
+
+        ports.append([fr, to, protocol])
     return ports
 
 def parse_environment(value):
@@ -576,6 +569,8 @@ class Thing(object):
 
 class Server(Thing):
 
+    # TODO: use node['running'] instead of 'active'
+
     def __init__(self, name, provider=None, containers=None,
                  ip=None, internal_address=None, active=None,
                  **kwargs):
@@ -595,6 +590,7 @@ class Server(Thing):
         node = self.server_provider().create_servers(
             names=[self.name], count=1, **create_options)[0]
         self.update(node)
+        self.active = True
         self.post_create()
         return [self]
 
@@ -621,9 +617,14 @@ class Server(Thing):
 
         create_options = self.get_create_options()
         try:
-            self.server_provider().validate_create_options(**create_options)
+            new_options = self.server_provider().validate_create_options(**create_options)
         except ValueError, e:
             raise ConfigException('Invalid options: %s' % e)
+
+        # ec2 image can be a short hand, need to normalise it to real ami id
+        # for equivalence comparisons to work
+        for param, value in new_options.items():
+            self.__dict__[param] = value
 
     def is_equivalent(self, other):
         return (self.provider == other.provider
@@ -639,8 +640,17 @@ class Server(Thing):
         return create_options
 
     def possible_options(self):
-        return (set(self.get_create_options()) |
-                set(self.__dict__) - {'containers'})
+        options = (set(self.get_create_options()) |
+                   set(self.__dict__) - {'containers'})
+
+        # some arbitrary constraints. shouldn't be here
+        # TODO: clean up this
+        if self.provider == 'ec2':
+            options -= {'bid'}
+        elif self.provider == 'digitalocean':
+            options -= {'internal_address'}
+
+        return options
 
     def properties(self):
         return {k: v for k, v in self.__dict__.items()
@@ -665,24 +675,15 @@ class Container(Thing):
     }
     
     def __init__(self, name, host, image=None, command=None, environment=None,
-                 ports=None, volumes=None, ip=None, active=None, state=None,
-                 created=None):
+                 ports=None, volumes=None, ip=None, active=None, 
+                 state=None, created=None):
         self.name = name
         self.host = host
         self.image = image
         self.command = command
-        if environment is None:
-            self.environment = []
-        else:
-            self.environment = environment
-        if ports is None:
-            self.ports = []
-        else:
-            self.ports = ports
-        if volumes is None:
-            self.volumes = []
-        else:
-            self.volumes = volumes
+        self.environment = environment or []
+        self.ports = ports or []
+        self.volumes = volumes or []
         self.ip = ip
         self.active = active
         self.state = state
@@ -727,11 +728,12 @@ class Container(Thing):
 
         if self.image == other.image:
             with host_settings(self.host):
-                pulled_image_id = docker.pull_image(other.image)
-                other_image_id = docker.get_image_id(other.name)
+                with settings(hide('everything')):
+                    pulled_image_id = docker.pull_image(other.image)
+                    other_image_id = docker.get_image_id(other.name)
 
-                sys.stdout.write('.')
-                sys.stdout.flush()
+            sys.stdout.write('.')
+            sys.stdout.flush()
 
             return pulled_image_id == other_image_id
 
@@ -745,9 +747,9 @@ class Container(Thing):
         # same here, can't know for sure,
         # self will be the remote machine!
         public_ports = []
-        for fr, to in self.ports:
+        for fr, to, protocol in self.ports:
             if to is not None:
-                public_ports.append([fr, to])
+                public_ports.append([fr, to, protocol])
         return sorted(public_ports) == sorted(other.ports)
 
     def is_equivalent_environment(self, other):
@@ -757,7 +759,9 @@ class Container(Thing):
         for k in set(this_dict) | set(other_dict):
             if k in ignored_keys:
                 continue
-            if this_dict.get(k, None) != other_dict.get(k, None):
+
+            # compare apples with 'apples'
+            if str(this_dict.get(k, None)) != str(other_dict.get(k, None)):
                 return False
         return True
 

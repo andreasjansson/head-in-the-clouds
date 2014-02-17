@@ -47,7 +47,7 @@ def cancel_spot_request():
 create_server_defaults = {
     'size': 'm1.small',
     'placement': 'us-east-1b',
-    'bid': None,
+    'bid': '',
     'image': 'ubuntu 12.04',
     'security_group': 'default',
 }
@@ -242,15 +242,25 @@ def create_spot_instances(count, size, placement, image, names, bid, security_gr
     return instance_ids
 
 def validate_create_options(size, placement, bid, image, security_group, prefer_ebs=False):
+    updates = {}
+
     if size is not None and size not in get_node_types():
         raise Exception('Unknown EC2 instance size: "%s"' % size)
 
-    if image.lower().startswith('ubuntu'):
-        if image.split(' ')[-1] not in [v for v, _ in OS_ROOT_STORE_AMI_MAP]:
-            raise Exception('Unknown Ubuntu version, please specify an image')
+    if size is None:
+        raise Exception('You need to specify a size')
 
     if image is None:
-        raise Exception('You need to either specify an image AMI or use a shorthand os')
+        raise Exception('You need to specify an image')
+
+    # TODO: stop supporting these defaults? it's pretty dirty...
+    if image.lower().startswith('ubuntu'):
+        ubuntu_version = image.split(' ')[-1]
+        if ubuntu_version not in [v for v, _ in OS_ROOT_STORE_AMI_MAP]:
+            raise Exception('Unknown Ubuntu version, please specify an image')
+        updates['image'] = _get_image_id_for_size(size, ubuntu_version, prefer_ebs)
+
+    return updates
 
 def rename(name):
     current_node = _host_node()
