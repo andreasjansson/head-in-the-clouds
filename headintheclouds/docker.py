@@ -237,6 +237,13 @@ def run_container(image, name=None, command=None, environment=None,
     if environment:
         for key, value in environment.items():
             parts += ['-e', "%s='%s'" % (key, value)]
+    if ports:
+        for local_port, public_port, protocol in ports:
+            parts += ['-expose']
+            if protocol == 'udp':
+                parts += ['%s/udp' % local_port]
+            else:
+                parts += ['%s' % local_port]
     parts += [image]
     if command:
         parts += ['%s' % command]
@@ -301,7 +308,7 @@ def get_container(id):
         ports.append((port, None, protocol))
     int_or_none = lambda x: None if x is None else int(x)
     ports = [[int_or_none(fr), int_or_none(to), protocol] for fr, to, protocol in ports] # make it a list cause ensemble wants it
-    environment = metadata['Config']['Env']
+    environment = metadata['Config']['Env'] or []
     environment = [e.split('=', 1) for e in environment]
     state = 'running' if metadata['State']['Running'] else 'stopped'
     command = subprocess.list2cmdline(metadata['Config']['Cmd'])

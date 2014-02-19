@@ -6,6 +6,7 @@
 # TODO:
 #
 # * refactor and document and make nice
+#   - especially "stupid_json_hack" and stuff around bid
 #
 # * support explicit $depends clause?
 #   - might be a use case with containers waiting for other containers 
@@ -63,6 +64,8 @@ def up(name, filename=None):
 
     # import ipdb; ipdb.set_trace()
 
+    print ''
+    
     confirm_changes(changes)
     create_things(servers, dependency_graph, changes['changing_servers'],
                   changes['changing_containers'], changes['absent_containers'])
@@ -377,7 +380,7 @@ def get_raw_dependency_graph(servers):
 def get_servers_parameterised_json(servers):
     server_dicts = {}
     for server_name, server in servers.items():
-        keys = server.possible_options()
+        keys = server.possible_options(stupid_json_hack=True)
         server_dicts[server_name] = {}
         for key in keys:
             server_dicts[server_name][key] = '${%s.%s}' % (server_name, key)
@@ -639,16 +642,17 @@ class Server(Thing):
                                and v is not None})
         return create_options
 
-    def possible_options(self):
+    def possible_options(self, stupid_json_hack=False):
         options = (set(self.get_create_options()) |
                    set(self.__dict__) - {'containers'})
 
-        # some arbitrary constraints. shouldn't be here
-        # TODO: clean up this
-        if self.provider == 'ec2':
-            options -= {'bid'}
-        elif self.provider == 'digitalocean':
-            options -= {'internal_address'}
+        if stupid_json_hack:
+            # some arbitrary constraints. shouldn't be here
+            # TODO: clean up this
+            if self.provider == 'ec2':
+                options -= {'bid'}
+            elif self.provider == 'digitalocean':
+                options -= {'internal_address'}
 
         return options
 
