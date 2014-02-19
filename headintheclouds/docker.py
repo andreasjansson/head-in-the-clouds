@@ -274,6 +274,11 @@ def get_ip(process):
 
 def inside(process):
     ip = get_ip(process)
+
+    # paramiko caches connections by ip. different containers often have
+    # the same ip.
+    fabric.network.disconnect_all() 
+
     return fabric.context_managers.settings(gateway='%s@%s:%s' % (env.user, env.host, env.port),
                                             host=ip, host_string='root@%s' % ip, user='root',
                                             password='root', no_keys=True, allow_agent=False)
