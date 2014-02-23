@@ -2,8 +2,11 @@
 #
 # * pulling image just for equivalence check is slow, there must be a
 #   way to get that through an api
+#   - make this parallel
 
 # TODO:
+#
+# * restart_strategy: {restart_before (default), restart_after}
 #
 # * refactor and document and make nice
 #   - especially "stupid_json_hack" and stuff around bid
@@ -286,6 +289,9 @@ def parse_config(config):
     all_servers = {}
 
     for server_name, server_spec in config.items():
+        if not server_spec:
+            server_spec = {}
+
         try:
             servers = parse_server(server_name, server_spec, templates)
         except ConfigException, e:
@@ -295,6 +301,9 @@ def parse_config(config):
             for server in servers.values():
                 server.containers = {}
                 for container_name, container_spec in server_spec['containers'].items():
+                    if not container_spec:
+                        container_spec = {}
+
                     try:
                         containers = parse_container(
                             container_name, container_spec, server, templates)
@@ -307,14 +316,34 @@ def parse_config(config):
     return all_servers
 
 def parse_server(server_name, spec, templates):
+
+    # TODO: switching on provider is hack. fix
+
     expand_template(spec, templates)
     servers = {}
-    
-    count = spec.get('$count', 1)
+
+    provider = spec.get('provider', 'unmanaged')
+    spec['provider'] = provider
+
     if '$count' in spec:
+        if provider == 'unmanaged':
+            raise ConfigException('$count requires a provider')
+        count = spec['$count']
         del spec['$count']
+    else:
+        count = 1
+
     for i in range(count):
-        server = Server('%s-%d' % (server_name, i), **spec)
+
+        if provider == 'unmanaged':
+            name = spec['ip'] = server_name
+            if 'ip' in spec and spec['ip'] != name:
+                raise ConfigException('No need to specify ip for unmanaged servers, but if you do, the ip must match the name of the server')
+            spec['active'] = True
+        else:
+            name = '%s-%d' % (server_name, i)
+
+        server = Server(name, **spec)
         server.validate()
         servers[server.name] = server
 
@@ -612,7 +641,7 @@ class Server(Thing):
     def validate(self):
         valid_options = self.server_provider().create_server_defaults.keys()
         given_options = {k: v for k, v in self.__dict__.items()
-                         if k not in ('name', 'provider', 'containers')
+                         if k not in ('name', 'provider', 'containers', 'active')
                          and v is not None}
         invalid_options = set(given_options) - set(valid_options)
         if invalid_options:
@@ -631,7 +660,6 @@ class Server(Thing):
 
     def is_equivalent(self, other):
         return (self.provider == other.provider
-                and hasattr(self.server_provider(), 'equivalent_create_options')
                 and self.server_provider().equivalent_create_options(
                     self.get_create_options(), other.get_create_options()))
 

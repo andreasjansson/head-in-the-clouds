@@ -80,8 +80,8 @@ def print_table(table, columns=None, sort=None):
     for row in clean_table:
         print format_string % row
 
-def env_var(var):
-    value = os.environ.get(var)
+def env_var(var, default=None):
+    value = os.environ.get(var, default)
     if not value:
         raise Exception('Missing required environment variable: %s' % var)
     return value

@@ -5,8 +5,6 @@ import collections
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
 
-from headintheclouds import unknown_provider
-
 env.disable_known_hosts = True
 env.node_providers = {}
 env.providers = {}
@@ -35,13 +33,14 @@ def add_provider(name, module):
 
     env.providers[name] = module
 
-def provider_by_name(name):
-    if name is None:
-        return unknown_provider
-    elif name in env.providers:
-        return env.providers[name]
+def provider_by_name(provider_name):
+    if provider_name is None:
+        provider_name = 'unmanaged'
+
+    if provider_name in env.providers:
+        return env.providers[provider_name]
     else:
-        raise ValueError('Unknown server provider: "%s"' % name)
+        raise ValueError('Unknown server provider: "%s"' % provider_name)
 
 def provider_settings():
     if not env.host:
@@ -56,7 +55,7 @@ def this_provider():
     else:
         if env.host in env.node_providers:
             return env.node_providers[env.host]
-        return unknown_provider
+        return unmanaged
 
 def all_nodes():
     nodes = []

@@ -2,7 +2,6 @@ import boto.ec2
 import boto
 import datetime
 import dateutil.parser
-import signal
 import time
 import sys
 import re

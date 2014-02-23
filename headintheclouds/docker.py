@@ -270,10 +270,14 @@ def get_metadata(process):
 
 def get_ip(process):
     container = get_container(process)
-    return container['ip']
+    if container:
+        return container['ip']
+    return None
 
 def inside(process):
     ip = get_ip(process)
+    if not ip:
+        abort('No such container: %s' % process)
 
     # paramiko caches connections by ip. different containers often have
     # the same ip.
@@ -346,6 +350,8 @@ def get_image_id(container_name):
     return metadata[0]['Image']
 
 def get_container_ids():
+    setup() # defensive
+
     container_ids = []
     with hide('everything'):
         output = sudo('docker ps')
