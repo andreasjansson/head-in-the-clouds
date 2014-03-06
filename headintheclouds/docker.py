@@ -75,8 +75,9 @@ def unbind(process, *port_specs):
 
 @cloudtask
 @parallel
-def setup(directory=None, reboot=True):
-    # TODO: make this not require a reboot
+def setup(directory=None, version=None):
+    if not version:
+        version = getattr(env, 'docker_version', '0.7.6')
 
     # a bit hacky
     if os.path.exists('dot_dockercfg') and not fabric.contrib.files.exists('~/.dockercfg'):
@@ -85,6 +86,7 @@ def setup(directory=None, reboot=True):
     if not fabric.contrib.files.exists('~/.ssh/id_rsa'):
         fab.run('ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa')
 
+    # check if it's already there
     with settings(hide('everything'), warn_only=True):
         if not fab.run('which docker').failed:
             return
@@ -95,8 +97,10 @@ def setup(directory=None, reboot=True):
     sudo('apt-get -y install linux-image-extra-virtual')
 
     with settings(warn_only=True):
+        # this seems to fail occasionally, but seems to work
+        # second time. computer:(
         for retry in range(3):
-            ret = sudo('apt-get -y install lxc-docker-0.7.6')
+            ret = sudo('apt-get -y install lxc-docker-%s' % version)
             if ret.succeeded:
                 break
             sudo('apt-get update')
@@ -214,7 +218,38 @@ def pull(image):
 def inspect(process):
     sudo('docker inspect %s' % process)
 
+@cloudtask
+def tunnel(container, local_port, remote_port=None, gateway_port=None):
+    if remote_port is None:
+        remote_port = local_port
+    if gateway_port is None:
+        gateway_port = remote_port
 
+    remote_host = get_ip(container)
+
+    command = '''
+        ssh -v
+            -o StrictHostKeyChecking=no
+            -i "%(key_filename)s"
+            -L %(local_port)s:localhost:%(gateway_port)s
+            %(gateway_user)s@%(gateway_host)s
+                sshpass -p root
+                    ssh -o StrictHostKeyChecking=no
+                        -L %(gateway_port)s:localhost:%(remote_port)s
+                            root@%(remote_host)s
+    ''' % {
+        'key_filename': env.key_filename,
+        'local_port': local_port,
+        'gateway_port': gateway_port,
+        'gateway_user': env.user,
+        'gateway_host': env.host,
+        'remote_port': remote_port,
+        'remote_host': remote_host,
+    }
+
+    command = command.replace('\n', '')
+
+    local(command)
 
 def run_container(image, name=None, command=None, environment=None,
                   ports=None, volumes=None):
@@ -232,8 +267,9 @@ def run_container(image, name=None, command=None, environment=None,
     if name:
         parts += ['-name', name]
     if volumes:
-        for volume in volumes:
-            parts += ['-volume', volume]
+        for host_dir, container_dir in volumes.items():
+            sudo('mkdir -p "%s"' % host_dir)
+            parts += ['-v', '"%s":"%s"' % (host_dir, container_dir)]
     if environment:
         for key, value in environment.items():
             parts += ['-e', "%s='%s'" % (key, value)]
@@ -316,11 +352,15 @@ def get_container(id):
     for port, protocol in local_ports:
         ports.append((port, None, protocol))
     int_or_none = lambda x: None if x is None else int(x)
-    ports = [[int_or_none(fr), int_or_none(to), protocol] for fr, to, protocol in ports] # make it a list cause ensemble wants it
+    # make it a list cause ensemble wants it
+    ports = [[int_or_none(fr), int_or_none(to), protocol] for fr, to, protocol in ports] 
     environment = metadata['Config']['Env'] or []
     environment = [e.split('=', 1) for e in environment]
     state = 'running' if metadata['State']['Running'] else 'stopped'
     command = subprocess.list2cmdline(metadata['Config']['Cmd'])
+
+    # for some reason docker run's syntax is inconsistent with its internal representation
+    volumes = {v: k for k, v in metadata['Volumes'].items()}
 
     image = metadata['Config']['Image']
     return {
@@ -332,6 +372,7 @@ def get_container(id):
         'image': image,
         'environment': environment,
         'state': state,
+        'volumes': volumes,
     }
 
 #hack

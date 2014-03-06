@@ -1,4 +1,5 @@
 from functools import wraps
+from fabric.contrib.console import confirm
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
 

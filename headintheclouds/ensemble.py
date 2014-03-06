@@ -1,12 +1,11 @@
-# BUGS:
-#
-# * pulling image just for equivalence check is slow, there must be a
-#   way to get that through an api
-#   - make this parallel
-
 # TODO:
 #
+# * firewall:
+#   - by default, open ports to all ips in the manifest
+#
 # * restart_strategy: {restart_before (default), restart_after}
+#   - this requires that you can rename containers, which you can't at
+#     the moment
 #
 # * refactor and document and make nice
 #   - especially "stupid_json_hack" and stuff around bid
@@ -14,11 +13,6 @@
 # * support explicit $depends clause?
 #   - might be a use case with containers waiting for other containers 
 #     to start before they can
-#
-# * the ability to "up" a single server/container
-#   - would ensemble.up:production,serverX update the serverX-0 or
-#     every serverX? need to be able to support both cases. I guess
-#     serverX would be the group and serverX-0 the instance.
 
 import os
 import sys
@@ -53,6 +47,9 @@ def up(name, filename=None):
     with open(filename, 'r') as f:
         config = yaml.load(f)
 
+    do_up(config)
+
+def do_up(config):
     servers = parse_config(config)
 
     sys.stdout.write('Calculating changes...')
@@ -64,8 +61,6 @@ def up(name, filename=None):
     cycle_node = dependency_graph.find_cycle()
     if cycle_node:
         raise ConfigException('Cycle detected')
-
-    # import ipdb; ipdb.set_trace()
 
     print ''
     
@@ -117,10 +112,10 @@ def process_dependencies(servers, existing_servers):
         else:
             changes['new_servers'].add(thing)
 
-    for server in existing_servers.values():
-        for container in server.containers.values():
-            if container.thing_name() not in new_index:
-                changes['absent_containers'].add(container)
+#    for server in existing_servers.values():
+#        for container in server.containers.values():
+#            if container.thing_name() not in new_index:
+#                changes['absent_containers'].add(container)
 
     return dependency_graph, changes
 
@@ -169,6 +164,10 @@ def confirm_changes(changes):
         print red('The following containers will restart:')
         for container in changes['changing_containers']:
             print '%s (%s)' % (container.name, container.host.name)
+#    if changes.get('absent_containers', None):
+#        print red('The following containers will be deleted:')
+#        for container in changes['absent_containers']:
+#           print '%s (%s)' % (container.name, container.host.name)
 
     if changes:
         if not confirm('Do you wish to continue?'):
@@ -201,8 +200,8 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
     queue = multiprocessing.Queue()
     processes = make_processes(servers, queue, things_to_delete)
 
-    for container in absent_containers:
-        container.terminate()
+#    for container in absent_containers:
+#        container.delete()
 
     remaining = set(processes)
     while remaining:
@@ -219,6 +218,8 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
             refresh_thing_index(thing_index)
 
             resolve_dependents(dependency_graph, thing, thing_index)
+
+            # TODO: raise exception if no things can be resolved (instead of stalling (shouldn't be possible but could repro if sestting an env var to ${host.internal_ip} (instead of internal_address) due to another bug))
 
 def build_thing_index(servers):
     thing_index = {}
@@ -415,13 +416,25 @@ def get_servers_parameterised_json(servers):
             server_dicts[server_name][key] = '${%s.%s}' % (server_name, key)
     return json.dumps(server_dicts)
 
+def split_variable(var):
+    # TODO: hack (for ips (v4 only..))
+    ip_match = re.match('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}', var)
+    if ip_match:
+        parts = [ip_match.group()]
+        parts.extend(var[ip_match.end() + 1:].split('.'))
+    else:
+        parts = var.split('.')
+    return parts
+
 def resolve_or_add_dependency(value, attr, servers, dependency_graph, server, container=None):
     if value == '$servers':
         value = get_servers_parameterised_json(servers)
 
     variables = parse_variables(value)
     for var_string, var in variables.items():
-        parts = var.split('.')
+
+        parts = split_variable(var)
+
         if parts[0] == 'host':
             depends_server = server.name
         else:
@@ -481,7 +494,7 @@ def resolve(value, thing, var_string):
     return value.replace(var_string, str(resolved_value))
 
 def get_resolved_value(variable, thing):
-    parts = variable.split('.')
+    parts = split_variable(variable)
     if parts[1] == 'containers':
         prop = parts[3]
     else:
@@ -491,6 +504,8 @@ def get_resolved_value(variable, thing):
 def get_variable_expression(thing, attr):
     parts = attr.split(':')
     field = parts.pop(0)
+
+    # TODO: this doesn't seem to be raised!????
     if field not in thing.possible_options():
         raise ConfigException('Invalid attribute: %s' % field)
 
@@ -547,9 +562,9 @@ def parse_float(value):
     except ValueError:
         raise ConfigException('Value is not a float: "%s"' % value)
 
-def parse_list(value):
-    if not isinstance(value, list):
-        raise ConfigException('Value is not a list: "%s"' % value)
+def parse_dict(value):
+    if not isinstance(value, dict):
+        raise ConfigException('Value is not a dictionary: "%s"' % value)
     return value
 
 def parse_ports(value):
@@ -702,7 +717,7 @@ class Container(Thing):
         'command': parse_string,
         'environment': parse_environment,
         'ports': parse_ports,
-        'volumes': parse_list,
+        'volumes': parse_dict,
         'ip': parse_string
     }
     
@@ -785,7 +800,7 @@ class Container(Thing):
         return sorted(public_ports) == sorted(other.ports)
 
     def is_equivalent_environment(self, other):
-        ignored_keys = {'HOME', 'PATH'} # for now
+        ignored_keys = {'HOME', 'PATH', 'DEBIAN_FRONTEND'} # TODO: for now (or forever maybe?)
         this_dict = {k: v for k, v in self.environment}
         other_dict = {k: v for k, v in other.environment}
         for k in set(this_dict) | set(other_dict):

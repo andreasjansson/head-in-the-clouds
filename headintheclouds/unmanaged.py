@@ -27,10 +27,6 @@ def create_servers(*args, **kwargs):
     raise NotImplementedError()
 
 def validate_create_options(ip):
-    # just make sure we can connect
-    with fab.settings(host=ip, host_string=ip, **settings):
-        run('true')
-
     return {}
 
 def equivalent_create_options(options1, options2):
