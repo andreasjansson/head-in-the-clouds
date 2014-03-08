@@ -53,10 +53,12 @@ def create_servers(count, names=None, size=None, placement=None, image=None):
             's' if count > 1 else '',
             count - n_active, n_active)
 
+        # do the sleeping here instead of after because it takes a couple
+        # seconds for ssh to come up. TODO: an actual ssh check
+        time.sleep(5)
+
         if n_active == count:
             break
-
-        time.sleep(5)
 
     return [node_map[id] for id in droplet_ids]
 

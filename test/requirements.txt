@@ -1,0 +1,3 @@
+nose-testconfig
+unittest2
+requests

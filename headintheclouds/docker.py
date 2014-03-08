@@ -6,7 +6,7 @@ import dateutil.parser
 import fabric.contrib.files
 import fabric.api as fab
 import fabric.context_managers
-from fabric.api import *
+from fabric.api import * # pylint: disable=W0614,W0401
 from headintheclouds.tasks import cloudtask
 from headintheclouds.util import print_table
 import collections
