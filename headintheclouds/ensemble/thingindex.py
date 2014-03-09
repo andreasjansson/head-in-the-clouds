@@ -14,7 +14,7 @@ def build_thing_index(servers):
 
 def refresh_thing_index(thing_index):
     # TODO this starting to get really ugly. need to refactor
-    for thing_name, thing in thing_index.items():
+    for thing in thing_index.values():
         if isinstance(thing, Server):
             for container_name, container in thing.containers.items():
                 thing.containers[container_name] = thing_index[container.thing_name()]

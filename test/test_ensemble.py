@@ -242,7 +242,7 @@ class TestExpandTemplate(unittest.TestCase):
         config = {
             'foo': 'bar',
             'baz': 'qux',
-            '$template': 'a',
+            'template': 'a',
         }
         templates = {
             'a': {
@@ -265,7 +265,7 @@ class TestExpandTemplate(unittest.TestCase):
         config = {
             'foo': 'bar',
             'baz': 'qux',
-            '$template': 'a',
+            'template': 'a',
         }
         templates = {
             'b': {
@@ -575,7 +575,7 @@ foo:
       environment:
         BAR_HOST: ${bar.ip}
         HOSTNAME: ${host.name}-${host.ip}
-  $count: 2
+  count: 2
 
 bar:
   provider: ec2

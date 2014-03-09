@@ -108,8 +108,6 @@ def parse_firewall(spec, server, templates):
 
     rules = {}
     for port, addresses in spec.items():
-        original_port = port
-
         split = str(port).split('/', 1)
         if len(split) == 1:
             port = split[0]

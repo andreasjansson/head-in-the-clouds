@@ -55,7 +55,6 @@ def this_provider():
     else:
         if env.host in env.node_providers:
             return env.node_providers[env.host]
-        return unmanaged
 
 def all_nodes():
     nodes = []
