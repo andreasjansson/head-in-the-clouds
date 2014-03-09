@@ -3,6 +3,12 @@ from fabric.api import * # pylint: disable=W0614,W0401
 CHAIN = 'HEAD_IN_THE_CLOUDS'
 
 def set_rules(open_list):
+    rules = make_rules(open_list)
+    rules = ['iptables ' + r for r in rules]
+    cmd = ' && '.join(rules)
+    sudo(cmd)
+
+def make_rules(open_list):
     c = [] # list of commands we will join with &&
 
     if has_chain():
@@ -17,52 +23,79 @@ def set_rules(open_list):
     c.append(accept_loopback)
 
     # allow dns ports
-    c.append(accept(53, None, 'tcp', None))
-    c.append(accept(53, None, 'udp', None))
+    c += accept(53, None, 'tcp', None)
+    c += accept(53, None, 'udp', None)
 
     for source_port, destination_port, protocol, addresses in open_list:
-        c.append(accept(source_port, destination_port, protocol, addresses))
+        c += accept(source_port, destination_port, protocol, addresses)
 
     c.append(accept_established)
 
     c.append(drop_all)
+    return c
 
-    cmd = ' && '.join(c)
-    sudo(cmd)
+def get_rules():
+    with settings(hide('everything'), warn_only=True):
+        rules = run('iptables -S %s' % CHAIN)
+
+    rules = rules.splitlines()
+    rules = [r for r in rules if r != make_chain]
+
+    return rules
 
 def has_chain():
     with settings(hide('everything'), warn_only=True):
-        return not run('iptables --list %s' % CHAIN).failed
+        return not run('iptables -L %s' % CHAIN).failed
 
-def accept(source_port, destination_port, protocol, addresses):
+def accept(source_port, destination_port, protocol, raw_addresses):
+    '''
+    accepts comma separated addresses or list of addresses
+    '''
+
     protocol = protocol or 'tcp'
 
-    if addresses:
-        source = '--source %s' % ','.join(addresses)
-    else:
-        source = ''
-    if source_port:
-        sport = '-p %s --sport %s' % (protocol, source_port)
-    else:
-        sport = ''
-    if destination_port:
-        dport = '-p %s --dport %s' % (protocol, destination_port)
-    else:
-        dport = ''
+    if not isinstance(raw_addresses, list):
+        raw_addresses = [raw_addresses]
 
-    return 'iptables -A %s %s %s %s -j RETURN' % (CHAIN, source, sport, dport)
+    addresses = []
+    for a in raw_addresses:
+        if a is None:
+            addresses.append(None)
+        else:
+            addresses += a.split(',')
 
-flush_chain        = 'iptables --flush %s' % CHAIN
-make_chain         = 'iptables --new-chain %s' % CHAIN
-jump_to_chain      = 'iptables -A INPUT -j %s' % CHAIN
-drop_null_packets  = 'iptables -A %s -p tcp --tcp-flags ALL NONE -j DROP' % CHAIN
-drop_syn_flood     = 'iptables -A %s -p tcp ! --syn -m state --state NEW -j DROP' % CHAIN
-drop_xmas_packets  = 'iptables -A %s -p tcp --tcp-flags ALL ALL -j DROP' % CHAIN
-accept_loopback    = 'iptables -A %s -i lo -j RETURN' % CHAIN
-accept_established = 'iptables -A %s -m state --state RELATED,ESTABLISHED -j RETURN' % CHAIN
-drop_all           = 'iptables -A %s -j DROP' % CHAIN
-delete_jump        = 'iptables -D INPUT -j %s' % CHAIN
-delete_chain       = 'iptables --delete-chain %s' % CHAIN
+    rules = []
+    for address in addresses:
+        parts = ['-A', CHAIN]
+
+        if address:
+            address, _, mask = address.partition('/')
+            mask = mask or '32'
+            parts.append('-s %s/%s' % (address, mask))
+
+        if source_port:
+            parts.append('-p %s -m %s --sport %s' % (protocol, protocol, source_port))
+
+        if destination_port:
+            parts.append('-p %s -m %s --dport %s' % (protocol, protocol, destination_port))
+
+        parts += ['-j', 'RETURN']
+
+        rules.append(' '.join(parts))
+
+    return rules
+
+flush_chain        = '-F %s' % CHAIN
+make_chain         = '-N %s' % CHAIN
+jump_to_chain      = '-A INPUT -j %s' % CHAIN
+drop_null_packets  = '-A %s -p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG NONE -j DROP' % CHAIN
+drop_syn_flood     = '-A %s -p tcp -m tcp ! --tcp-flags FIN,SYN,RST,ACK SYN -m state --state NEW -j DROP' % CHAIN
+drop_xmas_packets  = '-A %s -p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG FIN,SYN,RST,PSH,ACK,URG -j DROP' % CHAIN
+accept_loopback    = '-A %s -i lo -j RETURN' % CHAIN
+accept_established = '-A %s -m state --state RELATED,ESTABLISHED -j RETURN' % CHAIN
+drop_all           = '-A %s -j DROP' % CHAIN
+delete_jump        = '-D INPUT -j %s' % CHAIN
+delete_chain       = '-X %s' % CHAIN
 
 class FirewallException(Exception):
     pass

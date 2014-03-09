@@ -5,6 +5,8 @@ import simplejson as json
 from headintheclouds.ensemble.dependencygraph import DependencyGraph
 from headintheclouds.ensemble.exceptions import ConfigException
 from headintheclouds.ensemble.container import Container
+from headintheclouds.ensemble.server import Server
+from headintheclouds.ensemble.firewall import Firewall
 from headintheclouds.ensemble import thingindex
 
 class FieldPointer(object):
@@ -66,14 +68,16 @@ def process_dependencies(servers, existing_servers):
     for t in all_changing_things:
         if isinstance(t, Container):
             changes['changing_containers'].add(t)
-        else:
+        elif isinstance(t, Server):
             changes['changing_servers'].add(t)
 
     for t in all_new_things:
         if isinstance(t, Container):
             changes['new_containers'].add(t)
-        else:
+        elif isinstance(t, Server):
             changes['new_servers'].add(t)
+        elif isinstance(t, Firewall):
+            changes['new_firewalls'].add(t)
 
     for server in existing_servers.values():
         for container in server.containers.values():
@@ -129,9 +133,6 @@ def resolve_or_add_dependency(dependent, dependent_field_index, value, servers, 
     return value
 
 def get_variable_depends(dependent, servers, parts):
-
-    # TODO: still default to first!
-    
     if parts[0] == 'host':
         server = dependent.host
     else:
@@ -140,6 +141,10 @@ def get_variable_depends(dependent, servers, parts):
         server_name = parts[0]
         if server_name not in servers:
             server_name += '-0'
+
+        if server_name not in servers:
+            raise ConfigException('Unknown server: %s' % parts[0])
+
         server = servers[server_name]
     if parts[1] == 'containers':
         container_name = parts[2]
@@ -148,9 +153,12 @@ def get_variable_depends(dependent, servers, parts):
         if container_name not in server.containers:
             container_name += '-0'
 
+        if container_name not in server.containers:
+            raise ConfigException('Unknown container: %s' % parts[2])
+
         depends = server.containers[container_name]
         field, index = parse_index(parts[3])
-        # TODO: validate
+        # TODO: validate fields, somehow
     elif parts[1] == 'firewall':
         field, index = parse_index(parts[2])
         depends = server.firewall

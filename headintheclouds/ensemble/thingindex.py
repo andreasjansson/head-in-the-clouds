@@ -1,5 +1,6 @@
 from headintheclouds.ensemble.container import Container
 from headintheclouds.ensemble.server import Server
+from headintheclouds.ensemble.firewall import Firewall
 
 def build_thing_index(servers):
     thing_index = {}
@@ -7,6 +8,8 @@ def build_thing_index(servers):
         thing_index[server.thing_name()] = server
         for container in server.containers.values():
             thing_index[container.thing_name()] = container
+        if server.firewall:
+            thing_index[server.firewall.thing_name()] = server.firewall
     return thing_index
 
 def refresh_thing_index(thing_index):
@@ -16,4 +19,6 @@ def refresh_thing_index(thing_index):
             for container_name, container in thing.containers.items():
                 thing.containers[container_name] = thing_index[container.thing_name()]
         elif isinstance(thing, Container):
+            thing.host = thing_index[thing.host.thing_name()]
+        elif isinstance(thing, Firewall):
             thing.host = thing_index[thing.host.thing_name()]

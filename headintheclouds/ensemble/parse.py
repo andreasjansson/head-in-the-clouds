@@ -132,7 +132,7 @@ def parse_firewall(spec, server, templates):
             addresses = None
 
         for protocol in protocols:
-            rules[(port, protocol)] = (port, protocol, addresses)
+            rules[(port, protocol)] = {'port': port, 'protocol': protocol, 'addresses': addresses}
 
             if (port is None or int(port) == 22) and protocol == 'tcp' and not addresses:
                 open_22 = True

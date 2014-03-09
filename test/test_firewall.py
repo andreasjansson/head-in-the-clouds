@@ -19,19 +19,19 @@ class TestFirewall(unittest.TestCase):
         with utils.settings(server_ip):
             if firewall.has_chain():
                 with utils.settings(server_ip):
-                    sudo(firewall.flush_chain)
+                    iptables(firewall.flush_chain)
             else:
                 with utils.settings(server_ip):
-                    sudo(firewall.make_chain)
-                    sudo(firewall.jump_to_chain)
+                    iptables(firewall.make_chain)
+                    iptables(firewall.jump_to_chain)
 
     def test_has_chain(self):
         with utils.settings(server_ip):
-            sudo(firewall.delete_jump)
-            sudo(firewall.delete_chain)
+            iptables(firewall.delete_jump)
+            iptables(firewall.delete_chain)
             self.assertFalse(firewall.has_chain())
-            sudo(firewall.make_chain)
-            sudo(firewall.jump_to_chain)
+            iptables(firewall.make_chain)
+            iptables(firewall.jump_to_chain)
             self.assertTrue(firewall.has_chain())
 
     def test_inbound(self):
@@ -81,6 +81,24 @@ class TestFirewall(unittest.TestCase):
 
         self.assertFalse(is_accessible(server_ip, 80))
 
+    def test_get_rules(self):
+        rules = [
+            (None, 22, None, None),
+            (None, None, None, ['1.2.3.4']),
+            (None, 12345, 'udp', ['1.2.3.4', '5.6.7.8']),
+            (None, 5678, None, ['1.2.3.4,5.6.7.8']),
+        ]
+
+        with utils.settings(server_ip):
+            firewall.set_rules(rules)
+
+            new_rules = firewall.make_rules(rules)
+            existing_rules = firewall.get_rules()
+
+        new_rules = [r for r in new_rules if r != firewall.flush_chain]
+
+        self.assertEquals(new_rules, existing_rules)
+
 def sudobg(cmd):
     sockname = 'dtach.%s' % uuid.uuid4()
     with settings(hide('everything'), warn_only=True):
@@ -88,6 +106,9 @@ def sudobg(cmd):
             sudo('apt-get install -y dtach')
     
     return sudo('dtach -n `mktemp -u /tmp/%s.XXXX` %s'  % (sockname, cmd))
+
+def iptables(cmd):
+    sudo('iptables ' + cmd)
 
 def is_accessible(ip, port):
     with settings(hide('everything'), warn_only=True):
