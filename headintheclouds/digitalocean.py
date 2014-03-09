@@ -137,6 +137,7 @@ def droplet_to_node(droplet):
         node['image'] = deprecated_image_ids.get(droplet.image_id, 'unknown')
     node['ip'] = droplet.ip_address
     node['internal_address'] = droplet.ip_address
+    node['internal_ip'] = droplet.ip_address
     node['state'] = droplet.status
     node['running'] = droplet.status == 'active'
 

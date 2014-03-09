@@ -70,6 +70,8 @@ def process_dependencies(servers, existing_servers):
             changes['changing_containers'].add(t)
         elif isinstance(t, Server):
             changes['changing_servers'].add(t)
+        elif isinstance(t, Firewall):
+            changes['changing_firewalls'].add(t)
 
     for t in all_new_things:
         if isinstance(t, Container):
@@ -119,8 +121,8 @@ def resolve_or_add_dependency(dependent, dependent_field_index, value, servers, 
     if value == '$servers':
         value = get_servers_parameterised_json(servers)
 
-    if value == '$internal_addresses':
-        value = get_parameterised_internal_addresses(servers)
+    if value == '$internal_ips':
+        value = get_parameterised_internal_ips(servers)
 
     variables = parse_variables(value)
     for var_string, var in variables.items():
@@ -255,8 +257,8 @@ def get_servers_parameterised_json(servers):
             server_dicts[server_name][key] = '${%s.%s}' % (server_name, key)
     return json.dumps(server_dicts)
 
-def get_parameterised_internal_addresses(servers):
-    internal_addresses = []
+def get_parameterised_internal_ips(servers):
+    internal_ips = []
     for server_name in servers:
-        internal_addresses.append('${%s.internal_address}' % server_name)
-    return ','.join(internal_addresses)
+        internal_ips.append('${%s.internal_ip}' % server_name)
+    return ','.join(internal_ips)

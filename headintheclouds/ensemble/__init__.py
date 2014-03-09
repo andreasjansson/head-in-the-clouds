@@ -1,7 +1,5 @@
 # TODO:
 #
-# * warn if trying to close port 22
-#
 # * restart_strategy: {restart_before (default), restart_after}
 #   - this requires that you can rename containers, which you can't at
 #     the moment

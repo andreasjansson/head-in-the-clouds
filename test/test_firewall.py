@@ -23,15 +23,15 @@ class TestFirewall(unittest.TestCase):
             else:
                 with utils.settings(server_ip):
                     iptables(firewall.make_chain)
-                    iptables(firewall.jump_to_chain)
+                    iptables(firewall.jump_to_chain())
 
     def test_has_chain(self):
         with utils.settings(server_ip):
-            iptables(firewall.delete_jump)
+            iptables(firewall.delete_jump())
             iptables(firewall.delete_chain)
             self.assertFalse(firewall.has_chain())
             iptables(firewall.make_chain)
-            iptables(firewall.jump_to_chain)
+            iptables(firewall.jump_to_chain())
             self.assertTrue(firewall.has_chain())
 
     def test_inbound(self):

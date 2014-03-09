@@ -552,6 +552,7 @@ def instance_to_node(instance):
     node['created'] = created.astimezone(dateutil.tz.tzlocal())
     node['ip'] = instance.ip_address
     node['internal_address'] = instance.private_dns_name
+    node['internal_ip'] = instance.private_ip_address
     return node
 
 def equivalent_create_options(options1, options2):

@@ -12,6 +12,7 @@ from headintheclouds.ensemble import dependency
 from headintheclouds.ensemble import thingindex
 from headintheclouds.ensemble.server import Server
 from headintheclouds.ensemble.container import Container
+from headintheclouds.ensemble import firewall
 
 MULTI_THREADED = True
 
@@ -44,7 +45,7 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
 
             dependency.resolve_dependents(dependency_graph, t, thing_index)
 
-            # TODO: raise exception if no things can be resolved (instead of stalling (shouldn't be possible but could repro if sestting an env var to ${host.internal_ip} (instead of internal_address) due to another bug))
+            # TODO: raise exception if no things can be resolved (instead of stalling (shouldn't be possible but could repro if sestting an env var to ${host.internal_ip} (instead of internal_ip) due to another bug))
 
 def make_processes(servers, queue, things_to_delete):
     processes = {}
@@ -60,6 +61,11 @@ def make_processes(servers, queue, things_to_delete):
                 process = UpProcess(container.thing_name(), queue)
                 process.thing_to_delete = things_to_delete.get(container.thing_name(), None)
                 processes[container.thing_name()] = process
+
+        if server.firewall:
+            if not server.firewall.is_active():
+                process = UpProcess(server.firewall.thing_name(), queue)
+                processes[server.firewall.thing_name()] = process
 
     return processes
 
@@ -93,18 +99,32 @@ def confirm_changes(changes):
         print yellow('The following servers will be created:')
         for server in changes['new_servers']:
             print '%s' % server.name
+
     if changes.get('new_containers', None):
         print yellow('The following containers will be created:')
         for container in changes['new_containers']:
             print '%s (%s)' % (container.name, container.host.name)
+
+    if changes.get('new_firewalls', None):
+        print yellow('The following servers will get new firewalls:')
+        for fw in changes['new_firewalls']:
+            print '%s (%s rules total)' % (fw.host.name, len(fw.fields['rules']))
+
     if changes.get('changing_servers', None):
         print red('The following servers will restart:')
         for server in changes['changing_servers']:
             print '%s' % server.name
+
     if changes.get('changing_containers', None):
         print red('The following containers will restart:')
         for container in changes['changing_containers']:
             print '%s (%s)' % (container.name, container.host.name)
+
+    if changes.get('changing_firewalls', None):
+        print red('The following servers will get updated firewalls:')
+        for fw in changes['changing_firewalls']:
+            print '%s (%s rules total)' % (fw.host.name, len(fw.fields['rules']))
+
 #    if changes.get('absent_containers', None):
 #        print red('The following containers will be deleted:')
 #        for container in changes['absent_containers']:
@@ -124,6 +144,9 @@ def find_existing_servers(names):
             for container in containers:
                 container = Container(host=server, **container)
                 server.containers[container.name] = container
+            if firewall.exists(server):
+                server.firewall = firewall.Firewall(server)
+                server.firewall.fields['active'] = True
             servers[server.name] = server
         sys.stdout.write('.')
         sys.stdout.flush()

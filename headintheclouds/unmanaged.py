@@ -49,6 +49,7 @@ def all_nodes():
                 'name': ip,
                 'ip': ip,
                 'internal_address': ip,
+                'internal_ip': ip,
                 'running': True,
             })
 

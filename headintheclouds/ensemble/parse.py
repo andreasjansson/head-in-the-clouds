@@ -4,9 +4,9 @@ from headintheclouds.ensemble.container import Container
 from headintheclouds.ensemble.firewall import Firewall
 
 def parse_config(config):
-    if '$templates' in config:
-        templates = config['$templates']
-        del config['$templates']
+    if 'templates' in config:
+        templates = config['templates']
+        del config['templates']
     else:
         templates = {}
 
@@ -50,11 +50,11 @@ def parse_server(server_name, spec, templates):
     expand_template(spec, templates)
     servers = {}
 
-    if '$count' in spec:
+    if 'count' in spec:
         if 'provider' not in spec:
-            raise ConfigException('$count requires a provider')
-        count = spec['$count']
-        del spec['$count']
+            raise ConfigException('count requires a provider')
+        count = spec['count']
+        del spec['count']
     else:
         count = 1
 
@@ -81,9 +81,9 @@ def parse_container(container_name, spec, server, templates):
     containers = {}
     expand_template(spec, templates)
 
-    count = spec.get('$count', 1)
-    if '$count' in spec:
-        del spec['$count']
+    count = spec.get('count', 1)
+    if 'count' in spec:
+        del spec['count']
 
     valid_fields = set(Container.field_parsers)
     if set(spec) - valid_fields:
@@ -105,8 +105,6 @@ def parse_container(container_name, spec, server, templates):
 
 def parse_firewall(spec, server, templates):
     expand_template(spec, templates)
-
-    open_22 = False
 
     rules = {}
     for port, addresses in spec.items():
@@ -134,20 +132,14 @@ def parse_firewall(spec, server, templates):
         for protocol in protocols:
             rules[(port, protocol)] = {'port': port, 'protocol': protocol, 'addresses': addresses}
 
-            if (port is None or int(port) == 22) and protocol == 'tcp' and not addresses:
-                open_22 = True
-
     firewall = Firewall(server, rules)
-
-    if not open_22:
-        raise ConfigException('Sorry, port 22 needs to be open to the world') # TODO: make this not a requirement
 
     return firewall
 
 def expand_template(spec, templates):
-    if '$template' in spec:
-        template = spec['$template']
-        del spec['$template']
+    if 'template' in spec:
+        template = spec['template']
+        del spec['template']
 
         if template not in templates:
             raise ConfigException('Missing template: %s' % template)
