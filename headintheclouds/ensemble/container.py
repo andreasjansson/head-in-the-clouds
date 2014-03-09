@@ -6,12 +6,51 @@ from headintheclouds.ensemble import remote
 from headintheclouds.ensemble.exceptions import ConfigException
 from headintheclouds.ensemble.thing import Thing
 
+def parse_string(value):
+    if not isinstance(value, basestring):
+        raise ConfigException('Value is not a string: "%s"' % value)
+    return value
+
+def parse_provider(value):
+    known_providers = ['ec2', 'digitalocean']
+    if value not in known_providers:
+        raise ConfigException('Invalid provider: "%s", valid providers are %s' %
+                              (value, known_providers))
+    return value
+
+def parse_float(value):
+    try:
+        return float(value)
+    except ValueError:
+        raise ConfigException('Value is not a float: "%s"' % value)
+
+def parse_dict(value):
+    if not isinstance(value, dict):
+        raise ConfigException('Value is not a dictionary: "%s"' % value)
+    return value.copy()
+
+def parse_ports(value):
+    error = ConfigException(
+        '"ports" should be a list in the format "FROM[:TO][/udp]": %s' % value)
+    if not isinstance(value, list):
+        raise error
+    ports = []
+    for x in value:
+        x = str(x)
+        try:
+            fr, to, protocol = docker.parse_port_spec(x)
+        except ValueError:
+            raise error
+
+        ports.append([fr, to, protocol])
+    return ports[:]
+
 class Container(Thing):
 
     field_parsers = {
         'image': parse_string,
         'command': parse_string,
-        'environment': parse_environment,
+        'environment': parse_dict,
         'ports': parse_ports,
         'volumes': parse_dict,
         'ip': parse_string
@@ -19,12 +58,15 @@ class Container(Thing):
     
     def __init__(self, name, host, **kwargs):
         super(Container, self).__init__()
+        kwargs.setdefault('ports', [])
+        kwargs.setdefault('environment', {})
+        kwargs.setdefault('volumes', [])
         self.name = name
         self.host = host
         self.fields.update(kwargs)
 
-    def thing_name(self):
-        return (self.host.name, self.name)
+    def is_active(self):
+        return self.fields['running']
 
     def create(self):
         with remote.host_settings(self.host):
@@ -81,12 +123,12 @@ class Container(Thing):
         for fr, to, protocol in self.fields['ports']:
             if to is not None:
                 public_ports.append([fr, to, protocol])
-        return sorted(public_ports) == sorted(other.ports)
+        return sorted(public_ports) == sorted(other.fields['ports'])
 
     def is_equivalent_environment(self, other):
         ignored_keys = {'HOME', 'PATH', 'DEBIAN_FRONTEND'} # TODO: for now (or forever maybe?)
-        this_dict = {k: v for k, v in self.fields['environment']}
-        other_dict = {k: v for k, v in other.fields['environment']}
+        this_dict = {k: v for k, v in self.fields['environment'].items()}
+        other_dict = {k: v for k, v in other.fields['environment'].items()}
         for k in set(this_dict) | set(other_dict):
             if k in ignored_keys:
                 continue
@@ -96,51 +138,9 @@ class Container(Thing):
                 return False
         return True
 
+    def thing_name(self):
+        return ('CONTAINER', self.host.name, self.name)
+
     def __repr__(self):
         return '<Container: %s (%s)>' % (self.name, self.host.name if self.host else None)
-
-def parse_string(value):
-    if not isinstance(value, basestring):
-        raise ConfigException('Value is not a string: "%s"' % value)
-    return value
-
-def parse_provider(value):
-    known_providers = ['ec2', 'digitalocean']
-    if value not in known_providers:
-        raise ConfigException('Invalid provider: "%s", valid providers are %s' %
-                              (value, known_providers))
-    return value
-
-def parse_float(value):
-    try:
-        return float(value)
-    except ValueError:
-        raise ConfigException('Value is not a float: "%s"' % value)
-
-def parse_dict(value):
-    if not isinstance(value, dict):
-        raise ConfigException('Value is not a dictionary: "%s"' % value)
-    return value
-
-def parse_ports(value):
-    error = ConfigException(
-        '"ports" should be a list in the format "FROM[:TO][/udp]": %s' % value)
-    if not isinstance(value, list):
-        raise error
-    ports = []
-    for x in value:
-        x = str(x)
-        try:
-            fr, to, protocol = docker.parse_port_spec(x)
-        except ValueError:
-            raise error
-
-        ports.append([fr, to, protocol])
-    return ports
-
-def parse_environment(value):
-    if not isinstance(value, dict):
-        raise ConfigException(
-            '"environment" should be a dictionary: %s' % value)
-    return [list(x) for x in value.items()]
 

@@ -1,5 +1,6 @@
 from headintheclouds.ensemble.exceptions import ConfigException
-from headintheclouds.ensemble import Server, Container, FirewallRule
+from headintheclouds.ensemble.server import Server
+from headintheclouds.ensemble.container import Container
 
 def parse_config(config):
     if '$templates' in config:
@@ -19,9 +20,9 @@ def parse_config(config):
         except ConfigException, e:
             raise ConfigException(e.message, server_name)
 
-        if 'firewall' in server_spec:
-            for server in servers.values():
-                server.firewall_rules = parse_firewall(server_spec['firewall'])
+#        if 'firewall' in server_spec:
+#            for server in servers.values():
+#                server.firewall_rules = parse_firewall(server_spec['firewall'])
 
         if 'containers' in server_spec:
             for server in servers.values():
@@ -65,7 +66,7 @@ def parse_server(server_name, spec, templates):
             name = spec['ip'] = server_name
             if 'ip' in spec and spec['ip'] != name:
                 raise ConfigException('No need to specify ip for unmanaged servers, but if you do, the ip must match the name of the server')
-            spec['active'] = True
+            spec['running'] = True
         else:
             name = '%s-%d' % (server_name, i)
 
@@ -95,7 +96,7 @@ def parse_container(container_name, spec, server, templates):
             if field in spec:
                 value = spec[field]
                 value = value_parser(value)
-                container.__dict__[field] = value
+                container.fields[field] = value
 
         containers[container.name] = container
 

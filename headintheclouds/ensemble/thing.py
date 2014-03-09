@@ -3,52 +3,62 @@ class Thing(object):
     def __init__(self):
         self.fields = FieldList()
 
-    def update(self, props):
-        for prop, value in props.items():
-            setattr(self, prop, value)
+    def update(self, other):
+        for prop, value in other.fields.items():
+            self.fields[prop] = value
 
 class FieldList(dict):
 
     def __getitem__(self, field_index):
-        name, index = field_index
-        value = super(FieldList, self).__getitem__(name)
+        if isinstance(field_index, (list, tuple)):
+            name, index = field_index
+        else:
+            name = field_index
+            index = None
+
+        if name in self:
+            value = super(FieldList, self).__getitem__(name)
+        else:
+            value = None
+
         if not value:
-            return None
+            return value
         if not index:
             return value
 
         for i in index:
-            if not isinstance(value, list):
-                raise ValueError('%s is not a list' % value)
             value = value[i]
 
         return value
 
     def __setitem__(self, field_index, value):
-        name, index = field_index
-        if not index:
-            super(FieldList, self).__setitem__(name, value)
+        if isinstance(field_index, (list, tuple)):
+            name, index = field_index
+        else:
+            name = field_index
+            index = None
 
-        current_value = self[field_index]
+        if not index:
+            return super(FieldList, self).__setitem__(name, value)
+
+        current_value = self[name]
         for i in index[:-1]:
-            if not isinstance(current_value, list):
-                raise ValueError('%s is not a list' % current_value)
             current_value = current_value[i]
         current_value[index[-1]] = value
 
-def build_thing_index(servers):
-    thing_index = {}
-    for server in servers.values():
-        thing_index[server.thing_name()] = server
-        for container in server.containers.values():
-            thing_index[container.thing_name()] = container
-    return thing_index
+    def indexed_items(self):
+        for name, value in self.items():
+            for x in walk_field(name, value, []):
+                yield x
 
-def refresh_thing_index(thing_index):
-    # TODO this starting to get really ugly. need to refactor
-    for thing_name, thing in thing_index.items():
-        if isinstance(thing, Server):
-            for container_name, container in thing.containers.items():
-                thing.containers[container_name] = thing_index[container.thing_name()]
-        elif isinstance(thing, Container):
-            thing.host = thing_index[thing.host.thing_name()]
+def walk_field(name, value, index):
+    if isinstance(value, (list, tuple)):
+        for i, x in enumerate(value):
+            for yielded in walk_field(name, x, index + [i]):
+                yield yielded
+    elif isinstance(value, dict):
+        for i, x in value.items():
+            for yielded in walk_field(name, x, index + [i]):
+                yield yielded
+    else:
+        yield (name, index), value

@@ -1,11 +1,19 @@
+import sys
 import multiprocessing
 import fabric
 from fabric.colors import yellow, red
 import fabric.api as fab
 from fabric.contrib.console import confirm
 
+import headintheclouds
+from headintheclouds import docker
 from headintheclouds.ensemble import thing
+from headintheclouds.ensemble import remote
 from headintheclouds.ensemble import dependency
+from headintheclouds.ensemble import thingindex
+from headintheclouds.ensemble.server import Server
+from headintheclouds.ensemble.container import Container
+
 
 MULTI_THREADED = True
 
@@ -14,7 +22,7 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
 
     things_to_delete = {t.thing_name(): t for t in changing_servers | changing_containers}
 
-    thing_index = thing.build_thing_index(servers)
+    thing_index = thingindex.build_thing_index(servers)
 
     queue = multiprocessing.Queue()
     processes = make_processes(servers, queue, things_to_delete)
@@ -34,7 +42,7 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
         completed_things = queue.get()
         for t in completed_things:
             thing_index[t.thing_name()] = t
-            thing.refresh_thing_index(thing_index)
+            thingindex.refresh_thing_index(thing_index)
 
             dependency.resolve_dependents(dependency_graph, t, thing_index)
 
@@ -44,13 +52,13 @@ def make_processes(servers, queue, things_to_delete):
     processes = {}
 
     for server in servers.values():
-        if not server.active:
+        if not server.is_active():
             process = UpProcess(server.thing_name(), queue)
             process.thing_to_delete = things_to_delete.get(server.thing_name(), None)
             processes[server.thing_name()] = process
 
         for container in server.containers.values():
-            if not container.active:
+            if not container.is_active():
                 process = UpProcess(container.thing_name(), queue)
                 process.thing_to_delete = things_to_delete.get(container.thing_name(), None)
                 processes[container.thing_name()] = process
@@ -107,4 +115,20 @@ def confirm_changes(changes):
     if changes:
         if not confirm('Do you wish to continue?'):
             fab.abort('Aborted')
+
+def find_existing_servers(names):
+    servers = {}
+    for node in headintheclouds.all_nodes():
+        if node['name'] in names and node['running']:
+            server = Server(running=True, **node)
+            with remote.host_settings(server):
+                containers = docker.get_containers()
+            for container in containers:
+                container = Container(host=server, running=True, **container)
+                server.containers[container.name] = container
+            servers[server.name] = server
+        sys.stdout.write('.')
+        sys.stdout.flush()
+
+    return servers
 

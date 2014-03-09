@@ -5,7 +5,6 @@ import yaml
 from fabric.api import * # pylint: disable=W0614,W0401
 
 from headintheclouds.ensemble import parse
-from headintheclouds.ensemble import remote
 from headintheclouds.ensemble import dependency
 from headintheclouds.ensemble import create
 from headintheclouds.ensemble import exceptions
@@ -28,7 +27,7 @@ def do_up(config):
     sys.stdout.write('Calculating changes...')
     sys.stdout.flush()
 
-    existing_servers = remote.find_existing_servers(servers.keys())
+    existing_servers = create.find_existing_servers(servers.keys())
     dependency_graph, changes = dependency.process_dependencies(servers, existing_servers)
 
     cycle_node = dependency_graph.find_cycle()

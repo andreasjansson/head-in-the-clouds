@@ -355,7 +355,7 @@ def get_container(id):
     # make it a list cause ensemble wants it
     ports = [[int_or_none(fr), int_or_none(to), protocol] for fr, to, protocol in ports] 
     environment = metadata['Config']['Env'] or []
-    environment = [e.split('=', 1) for e in environment]
+    environment = dict([e.split('=', 1) for e in environment])
     state = 'running' if metadata['State']['Running'] else 'stopped'
     command = subprocess.list2cmdline(metadata['Config']['Cmd'])
 

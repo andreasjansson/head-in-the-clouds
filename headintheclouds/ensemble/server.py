@@ -6,7 +6,7 @@ from headintheclouds.ensemble.thing import Thing
 
 class Server(Thing):
 
-    def __init__(self, name, provider, containers=None, **kwargs):
+    def __init__(self, name, provider=None, containers=None, **kwargs):
         super(Server, self).__init__()
 
         self.name = name
@@ -24,7 +24,7 @@ class Server(Thing):
         return self.fields['ip']
 
     def is_active(self):
-        return self.fields.get('running', False)
+        return self.fields['running', False]
 
     def update(self, other):
         self.fields.update(other.fields)
@@ -46,12 +46,10 @@ class Server(Thing):
         with remote.host_settings(self):
             self.server_provider().terminate()
 
-    def thing_name(self):
-        return (self.name, None)
-
     def validate(self):
-        valid_options = self.server_provider().create_server_defaults.keys()
-        given_options = {k for k, v in self.fields if v is not None}
+        valid_options = self.server_provider().create_server_defaults.keys() + ['name']
+        given_options = {k for k, v in self.fields.items()
+                         if v is not None}
         invalid_options = given_options - set(valid_options)
         if invalid_options:
             raise ConfigException('Invalid options: %s' % invalid_options)
@@ -74,12 +72,15 @@ class Server(Thing):
 
     def get_create_options(self):
         create_options = self.server_provider().create_server_defaults.copy()
-        create_options.update({k: v for k, v in self.fields
+        create_options.update({k: v for k, v in self.fields.items()
                                if k in create_options and v is not None})
         return create_options
 
     def server_provider(self):
         return headintheclouds.provider_by_name(self.provider)
+
+    def thing_name(self):
+        return ('SERVER', self.name)
 
     def __repr__(self):
         return '<Server: %s>' % self.name
