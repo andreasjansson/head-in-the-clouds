@@ -100,14 +100,23 @@ def get_raw_dependency_graph(servers):
             # dependency so that containers need to wait for the server to start
             dependency_graph.add(container.thing_name(), ActivePointer(), server.thing_name())
 
-#        for rule in server.firewall_rules:
-#            dependency_graph.add(rule.thing_name
+        if server.firewall:
+            for field_index, value in server.firewall.fields.indexed_items():
+                new_value = resolve_or_add_dependency(server.firewall, field_index, value, servers, dependency_graph)
+                if new_value:
+                    server.firewall.fields[field_index] = new_value
+
+            # dependency so that firewall need to wait for the server to start
+            dependency_graph.add(server.firewall.thing_name(), ActivePointer(), server.thing_name())
 
     return dependency_graph
 
 def resolve_or_add_dependency(dependent, dependent_field_index, value, servers, dependency_graph):
     if value == '$servers':
         value = get_servers_parameterised_json(servers)
+
+    if value == '$internal_addresses':
+        value = get_parameterised_internal_addresses(servers)
 
     variables = parse_variables(value)
     for var_string, var in variables.items():
@@ -144,7 +153,7 @@ def get_variable_depends(dependent, servers, parts):
         # TODO: validate
     elif parts[1] == 'firewall':
         field, index = parse_index(parts[2])
-        depends = server.firewall_rules[index[0]]
+        depends = server.firewall
     else:
         depends = server
         field, index = parse_index(parts[1])
@@ -237,3 +246,9 @@ def get_servers_parameterised_json(servers):
         for key in server.fields:
             server_dicts[server_name][key] = '${%s.%s}' % (server_name, key)
     return json.dumps(server_dicts)
+
+def get_parameterised_internal_addresses(servers):
+    internal_addresses = []
+    for server_name in servers:
+        internal_addresses.append('${%s.internal_address}' % server_name)
+    return ','.join(internal_addresses)

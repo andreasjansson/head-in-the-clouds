@@ -6,7 +6,7 @@ from headintheclouds.ensemble.thing import Thing
 
 class Server(Thing):
 
-    def __init__(self, name, provider=None, containers=None, **kwargs):
+    def __init__(self, name, provider=None, containers=None, firewall=None, **kwargs):
         super(Server, self).__init__()
 
         self.name = name
@@ -19,6 +19,8 @@ class Server(Thing):
             self.containers = {}
         else:
             self.containers = containers
+
+        self.firewall = firewall
 
     def get_ip(self):
         return self.fields['ip']

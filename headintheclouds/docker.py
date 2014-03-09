@@ -358,6 +358,7 @@ def get_container(id):
     environment = dict([e.split('=', 1) for e in environment])
     state = 'running' if metadata['State']['Running'] else 'stopped'
     command = subprocess.list2cmdline(metadata['Config']['Cmd'])
+    running = state == 'running'
 
     # for some reason docker run's syntax is inconsistent with its internal representation
     volumes = {v: k for k, v in metadata['Volumes'].items()}
@@ -373,6 +374,7 @@ def get_container(id):
         'environment': environment,
         'state': state,
         'volumes': volumes,
+        'running': running,
     }
 
 #hack

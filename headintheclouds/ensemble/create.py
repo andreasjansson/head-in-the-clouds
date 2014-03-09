@@ -7,13 +7,11 @@ from fabric.contrib.console import confirm
 
 import headintheclouds
 from headintheclouds import docker
-from headintheclouds.ensemble import thing
 from headintheclouds.ensemble import remote
 from headintheclouds.ensemble import dependency
 from headintheclouds.ensemble import thingindex
 from headintheclouds.ensemble.server import Server
 from headintheclouds.ensemble.container import Container
-
 
 MULTI_THREADED = True
 
@@ -112,7 +110,7 @@ def confirm_changes(changes):
 #        for container in changes['absent_containers']:
 #           print '%s (%s)' % (container.name, container.host.name)
 
-    if changes:
+    if set(changes) - {'absent_containers'}:
         if not confirm('Do you wish to continue?'):
             fab.abort('Aborted')
 
@@ -120,11 +118,11 @@ def find_existing_servers(names):
     servers = {}
     for node in headintheclouds.all_nodes():
         if node['name'] in names and node['running']:
-            server = Server(running=True, **node)
+            server = Server(**node)
             with remote.host_settings(server):
                 containers = docker.get_containers()
             for container in containers:
-                container = Container(host=server, running=True, **container)
+                container = Container(host=server, **container)
                 server.containers[container.name] = container
             servers[server.name] = server
         sys.stdout.write('.')

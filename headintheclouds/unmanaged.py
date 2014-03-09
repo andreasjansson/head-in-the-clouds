@@ -48,6 +48,7 @@ def all_nodes():
             nodes.append({
                 'name': ip,
                 'ip': ip,
+                'internal_address': ip,
                 'running': True,
             })
 

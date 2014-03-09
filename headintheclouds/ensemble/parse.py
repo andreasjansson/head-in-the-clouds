@@ -1,6 +1,7 @@
 from headintheclouds.ensemble.exceptions import ConfigException
 from headintheclouds.ensemble.server import Server
 from headintheclouds.ensemble.container import Container
+from headintheclouds.ensemble.firewall import Firewall
 
 def parse_config(config):
     if '$templates' in config:
@@ -20,9 +21,9 @@ def parse_config(config):
         except ConfigException, e:
             raise ConfigException(e.message, server_name)
 
-#        if 'firewall' in server_spec:
-#            for server in servers.values():
-#                server.firewall_rules = parse_firewall(server_spec['firewall'])
+        if 'firewall' in server_spec:
+            for server in servers.values():
+                server.firewall = parse_firewall(server_spec['firewall'], server, templates)
 
         if 'containers' in server_spec:
             for server in servers.values():
@@ -102,18 +103,46 @@ def parse_container(container_name, spec, server, templates):
 
     return containers
 
-def parse_firewall(spec, templates):
-    rules = []
+def parse_firewall(spec, server, templates):
     expand_template(spec, templates)
 
-    for port, host in rules:
-        if isinstance(host, list):
-            for h in host:
-                rules.append(Rule(host=h, port=port))
-        else:
-            rules.append(Rule(host=host, port=port))
+    open_22 = False
 
-    return rules
+    rules = {}
+    for port, addresses in spec.items():
+        original_port = port
+
+        split = str(port).split('/', 1)
+        if len(split) == 1:
+            port = split[0]
+            protocols = ['tcp']
+        else:
+            port, protocol = split
+            if protocol == '*':
+                protocols = ['tcp', 'udp']
+            else:
+                protocols = [protocol]
+
+        if port == '*':
+            port = None
+
+        if isinstance(addresses, list):
+            addresses = ','.join(addresses)
+        if addresses == '*':
+            addresses = None
+
+        for protocol in protocols:
+            rules[(port, protocol)] = (port, protocol, addresses)
+
+            if (port is None or int(port) == 22) and protocol == 'tcp' and not addresses:
+                open_22 = True
+
+    firewall = Firewall(server, rules)
+
+    if not open_22:
+        raise ConfigException('Sorry, port 22 needs to be open to the world') # TODO: make this not a requirement
+
+    return firewall
 
 def expand_template(spec, templates):
     if '$template' in spec:
