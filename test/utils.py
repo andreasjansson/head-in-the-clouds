@@ -10,6 +10,10 @@ def get_server():
         count=1, size='512MB', image='Ubuntu 12.04.3 x64',
         names=['unit-test-server'], placement='New York 1'
     )
+
+    import time
+    time.sleep(20)
+
     return nodes[0]['ip']
 
 def done_with_server(ip):
