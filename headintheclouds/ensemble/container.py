@@ -64,6 +64,7 @@ class Container(Thing):
         self.name = name
         self.host = host
         self.fields.update(kwargs)
+        self.fields['name'] = name
 
     def is_active(self):
         return self.fields['running']

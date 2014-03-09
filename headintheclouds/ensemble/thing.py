@@ -4,7 +4,11 @@ class Thing(object):
         self.fields = FieldList()
 
     def update(self, other):
-        for prop, value in other.fields.items():
+        if isinstance(other, Thing):
+            fields = other.fields.items()
+        else:
+            fields = other.items()
+        for prop, value in fields:
             self.fields[prop] = value
 
 class FieldList(dict):
