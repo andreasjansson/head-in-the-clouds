@@ -4,11 +4,8 @@ from headintheclouds.ensemble.container import Container
 from headintheclouds.ensemble.firewall import Firewall
 
 def parse_config(config):
-    if 'templates' in config:
-        templates = config['templates']
-        del config['templates']
-    else:
-        templates = {}
+    templates = config.pop('templates', {})
+    default_environment = config.pop('default_environment', {})
 
     all_servers = {}
 
@@ -34,7 +31,8 @@ def parse_config(config):
 
                     try:
                         containers = parse_container(
-                            container_name, container_spec, server, templates)
+                            container_name, container_spec, server, templates,
+                            default_environment)
                     except ConfigException, e:
                         raise ConfigException(e.message, server_name, container_name)
                     server.containers.update(containers)
@@ -53,8 +51,7 @@ def parse_server(server_name, spec, templates):
     if 'count' in spec:
         if 'provider' not in spec:
             raise ConfigException('count requires a provider')
-        count = spec['count']
-        del spec['count']
+        count = spec.pop('count')
     else:
         count = 1
 
@@ -77,13 +74,11 @@ def parse_server(server_name, spec, templates):
 
     return servers
 
-def parse_container(container_name, spec, server, templates):
+def parse_container(container_name, spec, server, templates, default_environment):
     containers = {}
     expand_template(spec, templates)
 
-    count = spec.get('count', 1)
-    if 'count' in spec:
-        del spec['count']
+    count = spec.pop('count', 1)
 
     valid_fields = set(Container.field_parsers)
     if set(spec) - valid_fields:
@@ -91,8 +86,10 @@ def parse_container(container_name, spec, server, templates):
             'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
 
     for i in range(count):
-        container = Container('%s-%d' % (container_name, i), server, **spec)
+        if 'environment' in spec:
+            expand_default_environment(spec['environment'], default_environment)
 
+        container = Container('%s-%d' % (container_name, i), server, **spec)
         for field, value_parser in Container.field_parsers.items():
             if field in spec:
                 value = spec[field]
@@ -136,13 +133,14 @@ def parse_firewall(spec, server, templates):
 
 def expand_template(spec, templates):
     if 'template' in spec:
-        template = spec['template']
-        del spec['template']
+        template = spec.pop('template')
 
         if template not in templates:
             raise ConfigException('Missing template: %s' % template)
 
         for k, v in templates[template].items():
-            if k not in spec:
-                spec[k] = v
+            spec.setdefault(k, v)
 
+def expand_default_environment(environment, default_environment):
+    for k, v in default_environment.items():
+        environment.setdefault(k, v)

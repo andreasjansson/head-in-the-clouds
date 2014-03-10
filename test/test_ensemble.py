@@ -275,6 +275,32 @@ class TestExpandTemplate(unittest.TestCase):
         self.assertRaises(ConfigException, parse.expand_template,
                           config, templates)
 
+class TestExpandDefaultEnvironment(unittest.TestCase):
+
+    def test_some_previous_environment(self):
+        config = {
+            'image': 'foo',
+            'ports': [1, 2, 3],
+            'environment': {
+                'abc': 'def',
+                'ghi': 'jlk',
+            }
+        }
+        default_environment = {
+            'abc': 123,
+            'mno': 'pqr',
+        }
+        expected_environment = {
+            'abc': 'def',
+            'ghi': 'jlk',
+            'mno': 'pqr',
+        }
+
+        server = Server('boo')
+        actual = parse.parse_container('blah', config, server, {}, default_environment)
+
+        self.assertEquals(actual['blah-0'].fields['environment'], expected_environment)
+
 class TestProcessDependencies(unittest.TestCase):
 
     def setUp(self):
@@ -512,7 +538,7 @@ class TestParseContainer(unittest.TestCase):
             )
         }
 
-        actual = parse.parse_container('cont', config, server, {})
+        actual = parse.parse_container('cont', config, server, {}, {})
 
         self.assertEquals(actual, expected)
 
