@@ -252,7 +252,7 @@ def tunnel(container, local_port, remote_port=None, gateway_port=None):
     local(command)
 
 def run_container(image, name=None, command=None, environment=None,
-                  ports=None, volumes=None):
+                  ports=None, volumes=None, max_memory=None):
 
     setup()
 
@@ -277,9 +277,12 @@ def run_container(image, name=None, command=None, environment=None,
         for local_port, public_port, protocol in ports:
             parts += ['-expose']
             if protocol == 'udp':
+                # import ipdb; ipdb.set_trace() TODO: debug why on earth udp would be first
                 parts += ['%s/udp' % local_port]
             else:
                 parts += ['%s' % local_port]
+    if max_memory:
+        parts += ['-m', max_memory]
     parts += [image]
     if command:
         parts += ['%s' % command]
@@ -351,9 +354,13 @@ def get_container(id):
             local_ports.remove((local_port, protocol))
     for port, protocol in local_ports:
         ports.append((port, None, protocol))
+
     int_or_none = lambda x: None if x is None else int(x)
     # make it a list cause ensemble wants it
-    ports = [[int_or_none(fr), int_or_none(to), protocol] for fr, to, protocol in ports] 
+    ports = [[int_or_none(fr), int_or_none(to), protocol] for
+             fr, to, protocol in ports
+             if fr != 'udp'] # for some reason the from port can end up being udp. no idea why. TODO: figure out why
+    
     environment = metadata['Config']['Env'] or []
     environment = dict([e.split('=', 1) for e in environment])
     state = 'running' if metadata['State']['Running'] else 'stopped'

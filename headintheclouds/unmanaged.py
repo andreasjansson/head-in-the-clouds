@@ -27,7 +27,7 @@ def create_servers(*args, **kwargs):
     raise NotImplementedError()
 
 def validate_create_options(ip):
-    return {}
+    return {'running': True}
 
 def equivalent_create_options(options1, options2):
     return options1['ip'] == options2['ip']

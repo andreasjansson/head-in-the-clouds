@@ -64,7 +64,6 @@ def parse_server(server_name, spec, templates):
             name = spec['ip'] = server_name
             if 'ip' in spec and spec['ip'] != name:
                 raise ConfigException('No need to specify ip for unmanaged servers, but if you do, the ip must match the name of the server')
-            spec['running'] = True
         else:
             name = '%s-%d' % (server_name, i)
 
@@ -119,8 +118,6 @@ def parse_firewall(spec, server, templates):
         if port == '*':
             port = None
 
-        if isinstance(addresses, list):
-            addresses = ','.join(addresses)
         if addresses == '*':
             addresses = None
 

@@ -28,9 +28,6 @@ class Server(Thing):
     def is_active(self):
         return self.fields['running', False]
 
-    def update(self, other):
-        self.fields.update(other.fields)
-
     def create(self):
         create_options = self.get_create_options()
         node = self.server_provider().create_servers(

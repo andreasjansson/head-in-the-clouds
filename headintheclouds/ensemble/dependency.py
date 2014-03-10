@@ -23,7 +23,7 @@ class FieldPointer(object):
             return False
 
         resolved_value = dependent.fields[self.dependent_field_index].replace(
-            self.dependent_substring, depends_value)
+            self.dependent_substring, str(depends_value))
         dependent.fields[self.dependent_field_index] = resolved_value
 
         return True

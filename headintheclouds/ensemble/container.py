@@ -1,3 +1,4 @@
+import re
 import sys
 import fabric.api as fab
 
@@ -45,6 +46,12 @@ def parse_ports(value):
         ports.append([fr, to, protocol])
     return ports[:]
 
+def parse_size(value):
+    value = value.lower()
+    if not re.match(r'^[0-9]+[bkmg]?$', value):
+        raise ConfigException('Invalid size: %s' % value)
+    return value
+
 class Container(Thing):
 
     field_parsers = {
@@ -53,7 +60,8 @@ class Container(Thing):
         'environment': parse_dict,
         'ports': parse_ports,
         'volumes': parse_dict,
-        'ip': parse_string
+        'ip': parse_string,
+        'max_memory': parse_size,
     }
     
     def __init__(self, name, host, **kwargs):
@@ -78,7 +86,8 @@ class Container(Thing):
                 command=self.fields['command'],
                 environment=self.fields['environment'],
                 ports=self.fields['ports'],
-                volumes=self.fields['volumes']
+                volumes=self.fields['volumes'],
+                max_memory=self.fields['volumes'],
             )
             self.update(container)
         return [self]
