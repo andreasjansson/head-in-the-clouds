@@ -148,7 +148,7 @@ def find_existing_servers(names):
                 server.firewall = firewall.Firewall(server)
                 server.firewall.fields['active'] = True
             servers[server.name] = server
-        sys.stdout.write('.')
+        sys.stdout.write(',')
         sys.stdout.flush()
 
     return servers

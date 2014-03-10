@@ -105,7 +105,7 @@ def setup(directory=None, version=None):
                 break
             sudo('apt-get update')
 
-    sudo('apt-get -y install sshpass')
+    sudo('apt-get -y install sshpass curl')
 
     if directory is not None:
         sudo('stop docker')
@@ -286,6 +286,7 @@ def run_container(image, name=None, command=None, environment=None,
     parts += [image]
     if command:
         parts += ['%s' % command]
+
     command_line = ' '.join(parts)
     sudo(command_line)
 
@@ -474,3 +475,36 @@ def pretty_container(container):
     container['ports'] = ', '.join(pretty_ports)
 
     return container
+
+def get_registry_image_id(name):
+    registry, namespace, repository, tag = parse_image_name(name)
+    response = registry_api(registry, 'repositories/%s/%s/tags' % (namespace, repository))
+    return response[tag]
+
+def parse_image_name(name):
+    regex = r'''
+        ^(?:(?P<registry>[^/]+)/)?
+         (?P<namespace>[^/]+)/
+         (?P<repository>[^:]+)
+         (?::(?P<tag>.+))?$
+    '''
+    match = re.match(regex, name, re.VERBOSE)
+    groups = match.groupdict()
+    return (groups['registry'] or 'index.docker.io',
+            groups['namespace'],
+            groups['repository'],
+            groups['tag'] or 'latest')
+
+def registry_api(registry, endpoint):
+    cfg = get_docker_cfg()
+    for host, details in cfg.items():
+        host_registry = re.sub(r'^(?:https://)?([^/]+)(?:/v1/)?', r'\1', host)
+        if host_registry == registry:
+            ret = fab.run('curl --header "Authorization: Basic %s" "https://%s/v1/%s"' %
+                      (details['auth'], registry, endpoint))
+            return json.loads(ret)
+    raise ValueError('Registry not in .dockercfg: %s' % registry)
+
+def get_docker_cfg():
+    ret = fab.run('cat ~/.dockercfg')
+    return json.loads(ret)

@@ -87,7 +87,7 @@ class Container(Thing):
                 environment=self.fields['environment'],
                 ports=self.fields['ports'],
                 volumes=self.fields['volumes'],
-                max_memory=self.fields['volumes'],
+                max_memory=self.fields['max_memory'],
             )
             self.update(container)
         return [self]
@@ -114,10 +114,10 @@ class Container(Thing):
                 with fab.settings(fab.hide('everything')):
                     pulled_image_id = docker.pull_image(other.fields['image'])
                     other_image_id = docker.get_image_id(other.name)
-
+ 
             sys.stdout.write('.')
             sys.stdout.flush()
-
+ 
             return pulled_image_id == other_image_id
 
     def is_equivalent_command(self, other):

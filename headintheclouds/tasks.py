@@ -87,4 +87,3 @@ def tunnel(local_port, remote_port=None):
 #@parallel
 def ping():
     local('ping -c1 %s' % env.host)
-

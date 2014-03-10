@@ -85,8 +85,7 @@ def parse_container(container_name, spec, server, templates, default_environment
             'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
 
     for i in range(count):
-        if 'environment' in spec:
-            expand_default_environment(spec['environment'], default_environment)
+        expand_default_environment(spec, default_environment)
 
         container = Container('%s-%d' % (container_name, i), server, **spec)
         for field, value_parser in Container.field_parsers.items():
@@ -138,6 +137,9 @@ def expand_template(spec, templates):
         for k, v in templates[template].items():
             spec.setdefault(k, v)
 
-def expand_default_environment(environment, default_environment):
-    for k, v in default_environment.items():
-        environment.setdefault(k, v)
+def expand_default_environment(spec, default_environment):
+    if 'environment' in spec:
+        for k, v in default_environment.items():
+            spec['environment'].setdefault(k, v)
+    else:
+        spec['environment'] = default_environment.copy()
