@@ -28,3 +28,5 @@ def refresh_servers(servers, thing_index):
         updated = servers[server_name] = thing_index[server.thing_name()]
         for container_name, container in server.containers.items():
             updated.containers[container_name] = thing_index[container.thing_name()]
+        if server.firewall:
+            updated.firewall = thing_index[server.firewall.thing_name()]
