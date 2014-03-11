@@ -1,6 +1,8 @@
 import re
 import collections
 import simplejson as json
+import multiprocessing
+import fabric
 
 from headintheclouds.ensemble.dependencygraph import DependencyGraph
 from headintheclouds.ensemble.exceptions import ConfigException
@@ -8,6 +10,8 @@ from headintheclouds.ensemble.container import Container
 from headintheclouds.ensemble.server import Server
 from headintheclouds.ensemble.firewall import Firewall
 from headintheclouds.ensemble import thingindex
+
+MULTI_THREADED = not True
 
 class FieldPointer(object):
 
@@ -42,32 +46,51 @@ def process_dependencies(servers, existing_servers):
     if cycle_node:
         raise ConfigException('Cycle detected')
 
-    all_changing_things = set()
-    all_new_things = set()
+    changing_things = set()
+    new_things = set()
+
+    queue = multiprocessing.Queue()
 
     remaining = set(new_index)
-    while True:
+    while remaining:
         # TODO: do this in parallel just like create does
 
         free_nodes = dependency_graph.get_free_nodes(remaining)
-        if not free_nodes:
-            break
+        if free_nodes:
+            next_things = free_nodes
+        else:
+            next_things = remaining
 
-        remaining -= free_nodes
+        remaining = remaining - next_things
 
-        for thing_name in free_nodes:
-            changing_things, new_things = resolve_existing(thing_name, new_index, existing_index, dependency_graph)
-            all_changing_things |= changing_things
-            all_new_things |= new_things
+        for thing_name in next_things:
+            process = DependencyProcess(
+                new_index[thing_name], existing_index.get(thing_name), queue)
+            process.start()
 
-    for thing_name in remaining:
-        changing_things, new_things = resolve_existing(thing_name, new_index, existing_index, dependency_graph)
-        all_changing_things |= changing_things
-        all_new_things |= new_things
+        for _ in next_things:
+            new_thing, existing_thing, is_changing, is_new, exception = queue.get()
+            if exception:
+                raise exception
+
+            if not is_new and not is_changing:
+                new_index[new_thing.thing_name()] = new_thing
+                thingindex.refresh_thing_index(new_index)
+                existing_index[existing_thing.thing_name()] = existing_thing
+                thingindex.refresh_thing_index(existing_index)
+
+            new_thing = new_index[new_thing.thing_name()]
+
+            if is_changing:
+                changing_things.add(new_thing)
+            elif is_new:
+                new_things.add(new_thing)
+
+            resolve_dependents(dependency_graph, new_thing, new_index)
 
     changes = collections.defaultdict(set)
 
-    for t in all_changing_things:
+    for t in changing_things:
         if isinstance(t, Container):
             changes['changing_containers'].add(t)
         elif isinstance(t, Server):
@@ -75,7 +98,7 @@ def process_dependencies(servers, existing_servers):
         elif isinstance(t, Firewall):
             changes['changing_firewalls'].add(t)
 
-    for t in all_new_things:
+    for t in new_things:
         if isinstance(t, Container):
             changes['new_containers'].add(t)
         elif isinstance(t, Server):
@@ -184,6 +207,36 @@ def parse_index(part):
 
     return name, index_string.split('][')
 
+class DependencyProcess(multiprocessing.Process):
+
+    def __init__(self, new_thing, existing_thing, queue):
+        super(DependencyProcess, self).__init__()
+        self.new_thing = new_thing
+        self.existing_thing = existing_thing
+        self.queue = queue
+
+        if not MULTI_THREADED:
+            self.start = self.run
+
+    def run(self):
+        if MULTI_THREADED:
+            fabric.network.disconnect_all()
+
+        is_changing = is_new = False
+        exception = None
+        try:
+            if self.existing_thing:
+                if self.existing_thing.is_equivalent(self.new_thing):
+                    self.new_thing.update(self.existing_thing)
+                else:
+                    is_changing = True
+            else:
+                is_new = True
+        except Exception, e:
+            exception = e
+
+        self.queue.put((self.new_thing, self.existing_thing, is_changing, is_new, exception))
+
 def resolve_existing(thing_name, new_index, existing_index, dependency_graph):
     changing_things = set()
     new_things = set()
@@ -197,8 +250,6 @@ def resolve_existing(thing_name, new_index, existing_index, dependency_graph):
             changing_things.add(new)
     else:
         new_things.add(new)
-
-    resolve_dependents(dependency_graph, new, new_index)
 
     return changing_things, new_things
 

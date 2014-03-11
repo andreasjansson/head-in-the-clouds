@@ -294,7 +294,7 @@ class TestProcessDependencies(unittest.TestCase):
         dependency_graph, changes = dependency.process_dependencies(servers, existing_servers)
 
         self.assertEquals(dependency_graph.graph, expected_graph)
-        self.assertEquals(changes, expected_changes)
+        self.assertTrue(changes_equals(changes, expected_changes))
 
     def test_new_containers(self):
         foo = Server(name='foo-0', provider='ec2', size='m1.small')
@@ -316,7 +316,7 @@ class TestProcessDependencies(unittest.TestCase):
         dependency_graph, changes = dependency.process_dependencies(servers, existing_servers)
 
         self.assertEquals(dependency_graph.graph, expected_graph)
-        self.assertEquals(changes, expected_changes)
+        self.assertTrue(changes_equals(changes, expected_changes))
 
     def test_changing_servers(self):
         foo = Server(name='foo-0', provider='ec2', size='m1.small')
@@ -346,7 +346,7 @@ class TestProcessDependencies(unittest.TestCase):
         dependency_graph, changes = dependency.process_dependencies(servers, existing_servers)
 
         self.assertEquals(dependency_graph.graph, expected_graph)
-        self.assertEquals(changes, expected_changes)
+        self.assertTrue(changes_equals(changes, expected_changes))
 
     def test_changing_containers(self):
         foo = Server(name='foo-0', provider='ec2', size='m1.small')
@@ -377,7 +377,7 @@ class TestProcessDependencies(unittest.TestCase):
         dependency_graph, changes = dependency.process_dependencies(servers, existing_servers)
 
         self.assertEquals(dependency_graph.graph, expected_graph)
-        self.assertEquals(changes, expected_changes)
+        self.assertTrue(changes_equals(changes, expected_changes))
 
     def test_absent_containers(self):
         foo = Server(name='foo-0', provider='ec2', size='m1.small')
@@ -400,7 +400,7 @@ class TestProcessDependencies(unittest.TestCase):
         dependency_graph, changes = dependency.process_dependencies(servers, existing_servers)
 
         self.assertEquals(dependency_graph.graph, expected_graph)
-        self.assertEquals(changes, expected_changes)
+        self.assertTrue(changes_equals(changes, expected_changes))
 
     def test_existing_parameterised_container(self):
         foo = Server(name='foo-0', provider='ec2', size='m1.small')
@@ -409,6 +409,7 @@ class TestProcessDependencies(unittest.TestCase):
         foo.containers = {
             'baz-0': Container(
                 name='baz-0',
+                image='foo/bar',
                 host=foo,
                 environment={'FOO': '${host.ip} ${bar.ip}'},
             )
@@ -422,6 +423,7 @@ class TestProcessDependencies(unittest.TestCase):
         e_foo.containers = {
             'baz-0': Container(
                 name='baz-0',
+                image='foo/bar',
                 host=e_foo,
                 environment={'FOO': '1.2.3.4 5.4.3.2'},
                 running=True,
@@ -433,17 +435,17 @@ class TestProcessDependencies(unittest.TestCase):
         expected_graph = {}
         expected_changes = {}
 
-        self.mox.StubOutWithMock(docker, 'pull_image')
+        self.mox.StubOutWithMock(docker, 'get_registry_image_id')
         self.mox.StubOutWithMock(docker, 'get_image_id')
-        docker.pull_image(None).AndReturn(None)
-        docker.get_image_id('baz-0').AndReturn(None)
+        docker.get_registry_image_id('foo/bar').AndReturn('1234')
+        docker.get_image_id('baz-0').AndReturn('1234')
 
         self.mox.ReplayAll()
 
         dependency_graph, changes = dependency.process_dependencies(servers, existing_servers)
 
         self.assertEquals(dependency_graph.graph, expected_graph)
-        self.assertEquals(changes, expected_changes)
+        self.assertTrue(changes_equals(changes, expected_changes))
 
         self.mox.VerifyAll()
 
@@ -688,7 +690,7 @@ bar:
         dependency_graph, changes = dependency.process_dependencies(servers, {})
 
         self.assertEquals(dependency_graph.graph, expected_graph)
-        self.assertEquals(changes, expected_changes)
+        self.assertTrue(changes_equals(changes, expected_changes))
 
         self.assertEquals(servers['foo-0'].containers['baz-0'].fields['environment']['BAR_HOST'], '${bar.ip}')
         self.assertEquals(servers['foo-0'].containers['baz-0'].fields['environment']['HOSTNAME'], 'foo-0-${host.ip}')
@@ -709,3 +711,15 @@ bar:
         self.assertEquals(servers['foo-0'].containers['baz-0'].fields['environment']['BAR_HOST'], '1.2.3.4')
         self.assertEquals(servers['foo-1'].containers['baz-0'].fields['environment']['BAR_HOST'], '1.2.3.4')
         self.assertEquals(servers['foo-0'].containers['baz-0'].fields['environment']['HOSTNAME'], 'foo-0-${host.ip}')
+
+
+def changes_equals(changes, expected_changes):
+    if sorted(changes.keys()) != sorted(expected_changes.keys()):
+        return False
+
+    for k, v in changes.items():
+        key = lambda x: x.thing_name()
+        if sorted(v, key=key) != sorted(expected_changes[k], key=key):
+            return False
+
+    return True

@@ -112,13 +112,13 @@ class Container(Thing):
         if self.fields['image'] == other.fields['image']:
             with remote.host_settings(self.host):
                 with fab.settings(fab.hide('everything')):
-                    pulled_image_id = docker.pull_image(other.fields['image'])
-                    other_image_id = docker.get_image_id(other.name)
+                    registry_image_id = docker.get_registry_image_id(other.fields['image'])
+                    running_image_id = docker.get_image_id(other.name)
  
             sys.stdout.write('.')
             sys.stdout.flush()
  
-            return pulled_image_id == other_image_id
+            return registry_image_id == running_image_id
 
     def is_equivalent_command(self, other):
         # can't know for sure, so playing safe
