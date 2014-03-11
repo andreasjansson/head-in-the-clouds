@@ -53,14 +53,29 @@ def create_servers(count, names=None, size=None, placement=None, image=None):
             's' if count > 1 else '',
             count - n_active, n_active)
 
-        # do the sleeping here instead of after because it takes a couple
-        # seconds for ssh to come up. TODO: an actual ssh check
-        time.sleep(5)
+        wait_for_instances_to_become_accessible(droplet_ids)
 
         if n_active == count:
             break
 
     return [node_map[id] for id in droplet_ids]
+
+def wait_for_instances_to_become_accessible(droplet_ids):
+    while True:
+        nodes_ready = 0
+        nodes = cache.recache(all_nodes)
+        nodes = [n for n in nodes if n['id'] in droplet_ids]
+        for node in nodes:
+            with fab.settings(hide('everything'), warn_only=True):
+                result = local('nc -w 5 -zvv %s 22' % node['ip'])
+            if result.return_code == 0:
+                nodes_ready += 1
+        if nodes_ready == len(droplet_ids):
+            return
+
+        print 'Waiting for droplet%s to become accessible' % (
+            's' if len(droplet_ids) > 1 else '')
+        time.sleep(5)
 
 def validate_create_options(size, placement, image):
     _get_size_id(size)

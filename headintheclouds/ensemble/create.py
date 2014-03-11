@@ -136,20 +136,59 @@ def confirm_changes(changes):
 
 def find_existing_servers(names):
     servers = {}
+
+    queue = multiprocessing.Queue()
+    processes = []
+
     for node in headintheclouds.all_nodes():
         if node['name'] in names and node['running']:
             server = Server(**node)
-            with remote.host_settings(server):
-                containers = docker.get_containers()
-            for container in containers:
-                container = Container(host=server, **container)
-                server.containers[container.name] = container
-            if firewall.exists(server):
-                server.firewall = firewall.Firewall(server)
-                server.firewall.fields['active'] = True
-            servers[server.name] = server
+            processes.append(DiscoverProcess(server, queue))
+
+    for process in processes:
+        process.start()
+
+    responses = 0
+    while responses < len(processes):
+        server, exception = queue.get()
+        if exception:
+            raise exception
+
+        servers[server.name] = server
+        responses += 1
+
         sys.stdout.write(',')
         sys.stdout.flush()
 
     return servers
 
+class DiscoverProcess(multiprocessing.Process):
+
+    def __init__(self, server, queue):
+        super(DiscoverProcess, self).__init__()
+        # works because we don't need to mutate thing anymore once we've forked
+        self.server = server
+        self.queue = queue
+
+        if not MULTI_THREADED:
+            self.start = self.run
+
+    def run(self):
+        if MULTI_THREADED:
+            fabric.network.disconnect_all()
+
+        exception = None
+
+        try:
+            with remote.host_settings(self.server):
+                containers = docker.get_containers()
+            for container in containers:
+                container = Container(host=self.server, **container)
+                self.server.containers[container.name] = container
+            if firewall.exists(self.server):
+                self.server.firewall = firewall.Firewall(self.server)
+                self.server.firewall.fields['active'] = True
+        except Exception, e:
+            exception = e
+
+        self.queue.put((self.server, exception))
