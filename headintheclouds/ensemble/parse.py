@@ -5,7 +5,6 @@ from headintheclouds.ensemble.firewall import Firewall
 
 def parse_config(config):
     templates = config.pop('templates', {})
-    default_environment = config.pop('default_environment', {})
 
     all_servers = {}
 
@@ -31,8 +30,7 @@ def parse_config(config):
 
                     try:
                         containers = parse_container(
-                            container_name, container_spec, server, templates,
-                            default_environment)
+                            container_name, container_spec, server, templates)
                     except ConfigException, e:
                         raise ConfigException(e.message, server_name, container_name)
                     server.containers.update(containers)
@@ -73,9 +71,12 @@ def parse_server(server_name, spec, templates):
 
     return servers
 
-def parse_container(container_name, spec, server, templates, default_environment):
+def parse_container(container_name, spec, server, templates):
     containers = {}
     expand_template(spec, templates)
+
+    if 'environment' in spec:
+        expand_template(spec['environment'], templates)
 
     count = spec.pop('count', 1)
 
@@ -85,8 +86,6 @@ def parse_container(container_name, spec, server, templates, default_environment
             'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
 
     for i in range(count):
-        expand_default_environment(spec, default_environment)
-
         container = Container('%s-%d' % (container_name, i), server, **spec)
         for field, value_parser in Container.field_parsers.items():
             if field in spec:
@@ -136,10 +135,3 @@ def expand_template(spec, templates):
 
         for k, v in templates[template].items():
             spec.setdefault(k, v)
-
-def expand_default_environment(spec, default_environment):
-    if 'environment' in spec:
-        for k, v in default_environment.items():
-            spec['environment'].setdefault(k, v)
-    else:
-        spec['environment'] = default_environment.copy()
