@@ -10,6 +10,8 @@
 # * support explicit $depends clause?
 #   - might be a use case with containers waiting for other containers 
 #     to start before they can
+#
+# * when moving servers between providers, delete server in old provider
 
 
 from headintheclouds.ensemble.tasks import up

@@ -157,7 +157,7 @@ def find_existing_servers(names):
         servers[server.name] = server
         responses += 1
 
-        sys.stdout.write(',')
+        sys.stdout.write('.')
         sys.stdout.flush()
 
     return servers
