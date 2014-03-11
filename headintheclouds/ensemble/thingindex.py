@@ -22,3 +22,9 @@ def refresh_thing_index(thing_index):
             thing.host = thing_index[thing.host.thing_name()]
         elif isinstance(thing, Firewall):
             thing.host = thing_index[thing.host.thing_name()]
+
+def refresh_servers(servers, thing_index):
+    for server_name, server in servers.items():
+        updated = servers[server_name] = thing_index[server.thing_name()]
+        for container_name, container in server.containers.items():
+            updated.containers[container_name] = thing_index[container.thing_name()]

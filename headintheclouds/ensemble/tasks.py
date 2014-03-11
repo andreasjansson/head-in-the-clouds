@@ -35,7 +35,7 @@ def do_up(config):
         raise exceptions.ConfigException('Cycle detected')
 
     print ''
-    
+
     create.confirm_changes(changes)
     create.create_things(servers, dependency_graph, changes['changing_servers'],
                          changes['changing_containers'], changes['absent_containers'])

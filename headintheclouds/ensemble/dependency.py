@@ -111,6 +111,8 @@ def process_dependencies(servers, existing_servers):
             if container.thing_name() not in new_index:
                 changes['absent_containers'].add(container)
 
+    thingindex.refresh_servers(servers, new_index)
+
     return dependency_graph, changes
 
 def get_raw_dependency_graph(servers):
