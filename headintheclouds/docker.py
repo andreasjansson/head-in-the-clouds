@@ -479,7 +479,14 @@ def pretty_container(container):
 def get_registry_image_id(name):
     registry, namespace, repository, tag = parse_image_name(name)
     response = registry_api(registry, 'repositories/%s/%s/tags' % (namespace, repository))
-    return response[tag]
+    if type(response) == list:
+        for r in response:
+            if r['name'] == tag:
+                return r['layer']
+    else:
+        return response[tag]
+
+    raise ValueError('Unknown tag: %s' % tag)
 
 def parse_image_name(name):
     regex = r'''
@@ -503,6 +510,10 @@ def registry_api(registry, endpoint):
             ret = fab.run('curl --header "Authorization: Basic %s" "https://%s/v1/%s"' %
                       (details['auth'], registry, endpoint))
             return json.loads(ret)
+    if registry == 'index.docker.io':
+        ret = fab.run('curl "https://%s/v1/%s"' % (registry, endpoint))
+        return json.loads(ret)
+        
     raise ValueError('Registry not in .dockercfg: %s' % registry)
 
 def get_docker_cfg():

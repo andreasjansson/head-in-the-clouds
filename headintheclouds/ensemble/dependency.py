@@ -11,7 +11,7 @@ from headintheclouds.ensemble.server import Server
 from headintheclouds.ensemble.firewall import Firewall
 from headintheclouds.ensemble import thingindex
 
-MULTI_THREADED = not True
+MULTI_THREADED = True
 
 class FieldPointer(object):
 
