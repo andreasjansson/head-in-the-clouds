@@ -1,12 +1,12 @@
 from setuptools import setup
 
 setup(name='headintheclouds',
-      version='0.2.1',
+      version='0.2.2',
       description='Provider-agnostic cloud provisioning and Docker orchestration',
       author='Andreas Jansson',
       author_email='andreas@jansson.me.uk',
       license='GNU GPLv3',
-      packages=['headintheclouds'],
+      packages=['headintheclouds', 'headintheclouds.ensemble'],
       url='https://github.com/andreasjansson/head-in-the-clouds',
       install_requires=[
           'Fabric==1.6.1',
