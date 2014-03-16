@@ -308,7 +308,7 @@ def get_servers_parameterised_json(servers):
     server_dicts = {}
     for server_name, server in servers.items():
         server_dicts[server_name] = {}
-        interesting_fields = {'ip', 'internal_ip', 'name'} | set(server.get_create_options())
+        interesting_fields = {'ip', 'internal_ip', 'name'}
         for key in interesting_fields:
             server_dicts[server_name][key] = '${%s.%s}' % (server_name, key)
     return json.dumps(server_dicts)

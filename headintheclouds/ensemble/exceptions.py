@@ -3,3 +3,6 @@ class ConfigException(Exception):
         self.server_name = server_name
         self.container_name = container_name
         super(ConfigException, self).__init__(message)
+
+class RuntimeException(Exception):
+    pass

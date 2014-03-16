@@ -13,6 +13,7 @@ from headintheclouds.ensemble import thingindex
 from headintheclouds.ensemble.server import Server
 from headintheclouds.ensemble.container import Container
 from headintheclouds.ensemble import firewall
+from headintheclouds.ensemble import exceptions
 
 MULTI_THREADED = True
 
@@ -37,6 +38,9 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
         for thing_name in free_nodes:
             processes[thing_name].thing = thing_index[thing_name]
             processes[thing_name].start()
+
+            if not free_nodes:
+                raise exceptions.RuntimeException('No free nodes in the dependency graph!')
 
         completed_things = queue.get()
         for t in completed_things:

@@ -1,11 +1,11 @@
 import os
 import errno
-import sqlite3
+import PyDbLite
 import cPickle
 import time
 from functools import wraps
 
-FILENAME = '~/.hitc/sqlite_cache.db'
+FILENAME = '~/.hitc/cache.pdl'
 
 NO_CACHE = os.environ.get('HITC_NO_CACHE', None) == 'true'
 
@@ -17,19 +17,15 @@ def get(key):
     if NO_CACHE:
         return None
 
-    _db().execute('''
-        SELECT value, expire
-        FROM cache
-        WHERE key = ?
-    ''', (key,))
-    ret = _db().fetchone()
-    if ret:
-        value, expire = ret
+    records = _db()._key[key]
+
+    if records:
+        record = records[0]
+        value = record['value']
+        expire = record['expire']
         if not expire or expire > time.time():
             return cPickle.loads(str(value))
-        # avoid race conditions by deleting
-        # just this expiration timestamp
-        delete(key, expire)
+        delete(key)
     return None
 
 def set(key, value, ttl=None):
@@ -41,33 +37,23 @@ def set(key, value, ttl=None):
     else:
         expire = time.time() + ttl
 
-    _db().execute('''
-        REPLACE INTO cache
-        VALUES (?, ?, ?)
-    ''', (key, cPickle.dumps(value), expire))
+    records = _db()._key[key]
+    _db().delete(records)
+    _db().insert(key=key, value=cPickle.dumps(value), expire=expire)
+    _db().commit()
 
-def delete(key, expire=None):
+def delete(key):
     if NO_CACHE:
         return None
 
-    if expire:
-        if not isinstance(expire, (float, int)):
-            raise ValueError('expire must be a number')
-        _db().execute('''
-            DELETE FROM cache
-            WHERE key = ? AND expire = ?
-        ''', (key, expire))
-    else:
-        _db().execute('''
-            DELETE FROM cache
-            WHERE key = ?
-        ''', (key,))
+    records = _db()._key[key]
+    if not records:
+        return None
+    _db().delete(records)
+    _db().commit()
 
 def flush():
     global _cursor
-
-    if NO_CACHE:
-        return None
 
     try:
         os.unlink(_filename())
@@ -80,11 +66,7 @@ def size():
     if NO_CACHE:
         return None
 
-    _db().execute('''
-        SELECT COUNT(*)
-        FROM cache
-    ''')
-    return int(_db().fetchone()[0])
+    return len(_db().records)
 
 def cached(func):
     @wraps(func)
@@ -139,21 +121,21 @@ def uncache(fn, *args, **kwargs):
 
 def _db():
     global _cursor
-    if not _cursor:
+    if _cursor is None:
         try:
             os.makedirs(os.path.dirname(_filename()))
         except OSError, e:
             if e.errno != errno.EEXIST:
                 raise
-        conn = sqlite3.connect(_filename(), isolation_level=None)
-        _cursor = conn.cursor()
-        _cursor.execute('''
-            CREATE TABLE IF NOT EXISTS cache (
-                key     TEXT    PRIMARY KEY,
-                value   BLOB,
-                expire  FLOAT
-            )
-        ''')
+        _cursor = PyDbLite.Base(_filename())
+        try:
+            _cursor.open()
+        except IOError, e:
+            if e.errno != errno.ENOENT:
+                raise
+            _cursor.create('key', 'value', 'expire')
+            _cursor.create_index('key')
+            
     return _cursor
 
 def _filename():

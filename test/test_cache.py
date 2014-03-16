@@ -121,6 +121,20 @@ class TestCache(unittest.TestCase):
         self.assertEquals(times_called['n'], 2)
         self.assertEquals(foo(), ret)
         self.assertEquals(times_called['n'], 2)
-        
+
+    def test_open_file(self):
+        cache.set('foo', 'bar')
+        self.assertEquals(cache.get('foo'), 'bar')
+        cache._cursor = None
+        self.assertEquals(cache.get('foo'), 'bar')
+
+    def test_upsert(self):
+        cache.set('foo', 'bar')
+        self.assertEquals(cache.get('foo'), 'bar')
+        self.assertEquals(cache.size(), 1)
+        cache.set('foo', 'baz')
+        self.assertEquals(cache.get('foo'), 'baz')
+        self.assertEquals(cache.size(), 1)
+
 def randstr():
     return str(uuid.uuid4())

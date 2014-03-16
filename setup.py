@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='headintheclouds',
-      version='0.2.2',
+      version='0.2.3',
       description='Provider-agnostic cloud provisioning and Docker orchestration',
       author='Andreas Jansson',
       author_email='andreas@jansson.me.uk',
@@ -14,5 +14,7 @@ setup(name='headintheclouds',
           'boto==2.9.8',
           'dop==0.1.4',
           'python-dateutil==2.1',
+          'simplejson',
+          'PyDbLite==2.5',
       ]
   )
