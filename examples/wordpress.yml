@@ -1,0 +1,11 @@
+wordpress:
+  provider: ec2
+  image: ubuntu 12.04
+  size: m1.small
+  containers:
+    wordpress:
+      image: tutum/wordpress
+      ports:
+        - 80
+      volumes:
+        /docker_volumes/wordpress/log: /var/log

@@ -1,3 +1,5 @@
+# completely artificial example that creates 3 servers and just sleeps
+
 test:
   provider: ec2
   size: m1.small
@@ -10,8 +12,8 @@ test:
     bar:
       image: jprjr/docker-tinyfs
       command: /bin/sh -c "sleep 20000"
-      $count: 3
-  $count: 1
+      count: 3
+  count: 1
 
 scratch:
   provider: ec2
@@ -26,4 +28,4 @@ scratch:
     qux:
       image: jprjr/docker-tinyfs
       command: /bin/sh -c "sleep 80000"
-  $count: 2
+  count: 2
