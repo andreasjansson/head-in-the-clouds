@@ -517,5 +517,5 @@ def registry_api(registry, endpoint):
     raise ValueError('Registry not in .dockercfg: %s' % registry)
 
 def get_docker_cfg():
-    ret = fab.run('cat ~/.dockercfg')
+    ret = fab.run('cat ~/.dockercfg 2>/dev/null || echo "{}"')
     return json.loads(ret)

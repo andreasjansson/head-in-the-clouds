@@ -20,6 +20,7 @@ __all__ = ['firewall', 'spot_requests', 'cancel_spot_request']
 @task
 @runs_once
 def firewall(open=None, close=None, security_group='default'):
+    
     if not open or close:
         raise Exception('Please provide open and/or close arguments')
     if open:
@@ -58,11 +59,8 @@ def create_servers(count, names=None, size=None, placement=None,
     count = int(count)
     assert count == len(names)
 
-    if image.lower().startswith('ubuntu'):
-        ubuntu_version = image.split(' ')[-1]
-        # TODO: allow setting things like root-store
-        image = _get_image_id_for_size(size, ubuntu_version, prefer_ebs=prefer_ebs)
-
+    image = _unalias_image(image)
+    
     if bid:
         instance_ids = create_spot_instances(
             count=count, size=size, placement=placement,
@@ -254,12 +252,7 @@ def validate_create_options(size, placement, bid, image, security_group, prefer_
     if image is None:
         raise Exception('You need to specify an image')
 
-    # TODO: stop supporting these defaults? it's pretty dirty...
-    if image.lower().startswith('ubuntu'):
-        ubuntu_version = image.split(' ')[-1]
-        if ubuntu_version not in [v for v, _ in OS_ROOT_STORE_AMI_MAP]:
-            raise Exception('Unknown Ubuntu version, please specify an image')
-        updates['image'] = _get_image_id_for_size(size, ubuntu_version, prefer_ebs)
+    updates['image'] = _unalias_image(image)
 
     return updates
 
@@ -561,14 +554,8 @@ def equivalent_create_options(options1, options2):
     options1 = options1.copy()
     options2 = options2.copy()
 
-    if options1['image'].lower().startswith('ubuntu '):
-        options1['image'] = _get_image_id_for_size(
-            options1['size'], options1['image'].split(' ')[-1],
-            prefer_ebs=False)
-    if options2['image'].lower().startswith('ubuntu '):
-        options2['image'] = _get_image_id_for_size(
-            options2['size'], options2['image'].split(' ')[-1],
-            prefer_ebs=False)
+    options1['image'] = _unalias_image(options1['image'])
+    options2['image'] = _unalias_image(options2['image'])
 
     return (options1['size'] == options2['size']
             and options1['placement'] == options2['placement']
@@ -589,34 +576,22 @@ def _host_role():
 def _set_instance_name(instance_id, name):
     _ec2().create_tags(instance_id, {'Name': '%s%s' % (env.name_prefix, name)})
 
-def _get_image_id_for_size(size, ubuntu_version, prefer_ebs=False):
-    if size in ['cc2.8xlarge', 'cr1.8xlarge', 'cg1.4xlarge', 'g2.2xlarge']:
-        root_store = 'hvm'
-    elif size in ['t1.micro']:
-        root_store = 'ebs'
-    else:
-        root_store = 'ebs' if prefer_ebs else 'instance'
+def _unalias_image(image):
+    return IMAGE_ALIASES.get(image.lower(), image)
 
-    image_id = OS_ROOT_STORE_AMI_MAP.get((ubuntu_version, root_store))
-    if not image_id:
-        abort('Unknown Ubuntu version: %s' % ubuntu_version)
-
-    return image_id
-
-
-OS_ROOT_STORE_AMI_MAP = {
-    ('12.04', 'ebs'):      'ami-a73264ce',
-    ('12.04', 'hvm'):      'ami-b93264d0',
-    ('12.04', 'instance'): 'ami-ad3660c4',
-    ('12.10', 'ebs'):      'ami-2bc99d42',
-    ('12.10', 'hvm'):      'ami-2dc99d44',
-    ('12.10', 'instance'): 'ami-a9cf9bc0',
-    ('13.04', 'ebs'):      'ami-10314d79',
-    ('13.04', 'hvm'):      'ami-e1277b88',
-    ('13.04', 'instance'): 'ami-762d491f',
-    ('13.10', 'ebs'):      'ami-ad184ac4',
-    ('13.10', 'hvm'):      'ami-a1184ac8',
-    ('13.10', 'instance'): 'ami-271a484e',
+IMAGE_ALIASES = {
+    ('ubuntu 12.04'):      'ami-ad3660c4',
+    ('ubuntu 12.04 ebs'):  'ami-a73264ce',
+    ('ubuntu 12.04 hvm'):  'ami-b93264d0',
+    ('ubuntu 12.10'):      'ami-a9cf9bc0',
+    ('ubuntu 12.10 ebs'):  'ami-2bc99d42',
+    ('ubuntu 12.10 hvm'):  'ami-2dc99d44',
+    ('ubuntu 13.04'):      'ami-762d491f',
+    ('ubuntu 13.04 ebs'):  'ami-10314d79',
+    ('ubuntu 13.04 hvm'):  'ami-e1277b88',
+    ('ubuntu 13.10'):      'ami-271a484e',
+    ('ubuntu 13.10 ebs'):  'ami-ad184ac4',
+    ('ubuntu 13.10 hvm'):  'ami-a1184ac8',
 }
 
 ACCESS_KEY_ID = util.env_var('AWS_ACCESS_KEY_ID')
