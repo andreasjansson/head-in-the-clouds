@@ -57,13 +57,15 @@ def parse_server(server_name, spec, templates):
         spec['provider'] = 'unmanaged'
 
     for i in range(count):
-
         if spec['provider'] == 'unmanaged':
             name = spec['ip'] = server_name
             if 'ip' in spec and spec['ip'] != name:
                 raise ConfigException('No need to specify ip for unmanaged servers, but if you do, the ip must match the name of the server')
         else:
-            name = '%s-%d' % (server_name, i)
+            if i == 0:
+                name = server_name
+            else:
+                name = '%s-%d' % (server_name, i)
 
         server = Server(name, **spec)
         server.validate()
@@ -86,7 +88,11 @@ def parse_container(container_name, spec, server, templates):
             'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
 
     for i in range(count):
-        container = Container('%s-%d' % (container_name, i), server, **spec)
+        if i == 0:
+            name = container_name
+        else:
+            name = '%s-%d' % (container_name, i)
+        container = Container(name, server, **spec)
         for field, value_parser in Container.field_parsers.items():
             if field in spec:
                 value = spec[field]

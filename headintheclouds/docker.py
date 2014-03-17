@@ -13,15 +13,25 @@ import collections
 from StringIO import StringIO
 
 @cloudtask
-def ssh(process, cmd=''):
-    ip = get_ip(process)
-    ssh_cmd = 'sshpass -p root ssh -A -t -o StrictHostKeyChecking=no root@%s' % ip
+def ssh(container, cmd='', user='root', password='root'):
+    '''
+    SSH into a running container, using the host as a jump host. This requires
+    the container to have a running sshd process.
+
+    Args:
+        * container: Container name or ID
+        * cmd='': Command to run in the container
+        * user='root': SSH username
+        * password='root': SSH password
+    '''
+    ip = get_ip(container)
+    ssh_cmd = 'sshpass -p \'%s\' ssh -A -t -o StrictHostKeyChecking=no \'%s\'@%s' % (password, user, ip)
     local('ssh -A -t -o StrictHostKeyChecking=no -i "%s" %s@%s %s %s' % (
         env.key_filename, env.user, env.host, ssh_cmd, cmd))
 
 @cloudtask
-def sshfs(process, remote_dir, local_dir):
-    ip = get_ip(process)
+def sshfs(container, remote_dir, local_dir):
+    ip = get_ip(container)
     os.path.makedirs(local_dir)
     local('sshfs -o ssh_command="ssh -i %(key_filename)s %(user)s@%(host)s sshpass -p root ssh" root@%(docker_ip)s:"%(remote_dir)s" "%(local_dir)s"' % {
         'key_filename': env.key_filename, 'user': env.user, 'host': env.host,
@@ -29,54 +39,62 @@ def sshfs(process, remote_dir, local_dir):
 
 @cloudtask
 def ps():
+    '''
+    Print a table of all running containers on a host
+    '''
     containers = get_containers()
     containers = [pretty_container(c) for c in containers]
     print_table(containers, ['name', 'ip', 'ports', 'created', 'image'], sort='name')
 
 @cloudtask
-#@parallel
-def bind(process, *port_specs):
+@parallel
+def bind(container, *ports):
     '''
     Bind one or more ports to the container.
 
-    Usage:
-        fab docker.bind:process,port_spec1,...
+    Args:
+        * container: Container name or ID
+        * \*ports: List of items in the format CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]
 
-      where
-        process is the name of the container process
-        port_spec1,... is a list in the format
-            "CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]"
+    Example:
+        fab docker.bind:mycontainer,80,"3306:3307","12345/udp"
     '''
 
-    ip = get_ip(process)
-    for port_spec in port_specs:
+    ip = get_ip(container)
+    for port_spec in ports:
         port, public_port, protocol = parse_port_spec(port_spec)
-        bind_process(ip, port, public_port, protocol)
+        bind_container(ip, port, public_port, protocol)
 
 @cloudtask
 @parallel
-def unbind(process, *port_specs):
+def unbind(container, *ports):
     '''
     Unbind one or more ports from the container.
 
-    Usage:
-        fab docker.unbind:process,port_spec1,...
+    Args:
+        * container: Container name or ID
+        * \*port: List of items in the format CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]
 
-      where
-        process is the name of the container process
-        port_spec1,... is a list in the format
-            "CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]"
+    Example:
+        fab docker.unbind:mycontainer,80,"3306:3307","12345/udp"
     '''
 
-    ip = get_ip(process)
-    for port_spec in port_specs:
+    ip = get_ip(container)
+    for port_spec in ports:
         port, public_port, protocol = parse_port_spec(port_spec)
-        unbind_process(ip, port, public_port, protocol)
+        unbind_container(ip, port, public_port, protocol)
 
 @cloudtask
 @parallel
-def setup(directory=None, version=None):
-    if not version:
+def setup(version=None):
+    '''
+    Prepare a vanilla server by installing docker, curl, and sshpass. If a file called ``dot_dockercfg``
+    exists in the current working directory, it is uploaded as ``~/.dockercfg``.
+
+    Args:
+        * version=None: Docker version. If undefined, will install 0.7.6. You can also specify this in env.docker_version
+    '''
+    if version is None:
         version = getattr(env, 'docker_version', '0.7.6')
 
     # a bit hacky
@@ -107,119 +125,92 @@ def setup(directory=None, version=None):
 
     sudo('apt-get -y install sshpass curl')
 
-    if directory is not None:
-        sudo('stop docker')
-        parent_dir = '/'.join(directory.split('/')[:-1])
-        sudo('mkdir -p "%s"' % parent_dir)
-        sudo('mv /var/lib/docker "%s"' % directory)
-        sudo('ln -s "%s" /var/lib/docker' % directory)
-        sudo('start docker')
-    
-#    if reboot:
-#        sudo('reboot')
+@cloudtask
+@parallel
+def run(image, name=None, command=None, environment=None, ports=None, volumes=None):
+    '''
+    Run a docker container.
+
+    Args:
+        * image: Docker image to run, e.g. orchardup/redis, quay.io/hello/world
+        * name=None: Container name
+        * command=None: Command to execute
+        * environment: Comma separated environment variables in the format NAME=VALUE
+        * ports=None: Comma separated port specs in the format CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]
+        * volumes=None: Comma separated volumes in the format HOST_DIR:CONTAINER_DIR
+
+    Examples:
+        * fab docker.run:orchardup/redis,name=redis,ports=6379
+        * fab docker.run:quay.io/hello/world,name=hello,ports="80:8080,1000/udp",volumes="/docker/hello/log:/var/log"
+        * fab docker.run:andreasjansson/redis,environment="MAX_MEMORY=4G,FOO=bar",ports=6379
+    '''
+
+    if ports and not name:
+        abort('The ports flag currently only works if you specify a container name')
+
+    ports = [parse_port_spec(p) for p in ports.split(',')]
+    environment = dict([x.split('=') for x in environment.split(',')])
+    volumes = dict([x.split('=') for x in volumes.split(',')])
+
+    run_container(
+        image=image,
+        name=name,
+        command=command,
+        ports=ports,
+        environment=environment,
+        volumes=volumes,
+    )
 
 @cloudtask
 @parallel
-def run(image, name=None, *port_specs, **kwargs):
+def kill(container, rm=True):
     '''
-    Run a docker container
+    Kill a container
 
-    Usage:
-        fab docker.run:image,name=None,cmd=None,*port_specs,**env_vars
-
-      where
-        image is the name of the image, can be either a hash or a tag,
-            e.g. ec85d8f5ea3d or quay.io/myusername/myimage
-        name is the name of the created container
-        cmd is the command to run
-        *port_specs is a list of items in the format "CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]"
-        **env_vars is a list of NAME=VALUE pairs that become part of the environment
+    Args:
+        * container: Container name or ID
+        * rm=True: Remove the container or not
     '''
-
-    if port_specs and not name:
-        abort('The ports flag currently only works if you specify a process name')
-
-    if 'cmd' in kwargs:
-        cmd = kwargs['cmd']
-        del kwargs['cmd']
-    else:
-        cmd = None
-    env_vars = kwargs
-
-    run_container(image=image,
-                  name=name,
-                  command=cmd,
-                  ports=[parse_port_spec(p) for p in port_specs],
-                  environment=env_vars)
-
-@cloudtask
-#@parallel
-def kill(process, rm=True):
-    container = get_container(process)
+    container = get_container(container)
     if not container:
-        abort('No such container: %s' % process)
+        abort('No such container: %s' % container)
     unbind_all(container['ip'])
 
-    sudo('docker kill %s' % process)
+    sudo('docker kill %s' % container)
     if rm:
-        sudo('docker rm %s' % process)
-
-@cloudtask
-@parallel
-def upstart(image, name=None, cmd='', respawn=True, n_instances=1, start=True, **kwargs):
-    # TODO: deprecate this
-
-    n_instances = int(n_instances)
-    assert n_instances > 0
-    respawn = str(respawn).lower() == 'true'
-
-    upstart_template = '''
-%(instances_stanza)s
-
-script
-    docker run %(env_vars)s -rm -name %(name)s %(image)s %(cmd)s
-end script
-
-%(respawn_stanza)s
-'''
-
-    if not name:
-        name = image.split('/')[-1].split('.')[0]
-
-    args = collections.defaultdict(str)
-    args['image'] = image
-    args['name'] = name
-    if n_instances > 1:
-        args['instances_stanza'] = 'instance $N'
-        args['name'] += '-$N'
-    if respawn:
-        args['respawn_stanza'] = 'respawn'
-    if cmd:
-        args['cmd'] = cmd
-    if kwargs:
-        for key, value in kwargs.items():
-            args['env_vars'] += ('-e %s=%s' % (key, value))
-
-    upstart_script = upstart_template % args
-    put(StringIO(upstart_script), '/etc/init/%s.conf' % name, use_sudo=True)
-
-    if start:
-        if n_instances > 1:
-            for i in range(n_instances):
-                sudo('start %s N=%d' % (name, i))
-        else:
-            sudo('start %s' % name)
+        sudo('docker rm %s' % container)
 
 @cloudtask
 def pull(image):
+    '''
+    Pull down an image from a repository (without running it)
+
+    Args:
+        image: Docker image
+    '''
     sudo('docker pull %s' % image)
 
 @cloudtask
-def inspect(process):
-    sudo('docker inspect %s' % process)
+def inspect(container):
+    '''
+    Inspect a container
+
+    Args:
+        container: Container name or ID
+    '''
+    sudo('docker inspect %s' % container)
 
 @cloudtask
 def tunnel(container, local_port, remote_port=None, gateway_port=None):
+    '''
+    Set up an SSH tunnel into the container, using the host as a gateway host.
+
+    Args:
+        * container: Container name or ID
+        * local_port: Local port
+        * remote_port=None: Port on the Docker container (defaults to local_port)
+        * gateway_port=None: Port on the gateway host (defaults to remote_port)
+    '''
     if remote_port is None:
         remote_port = local_port
     if gateway_port is None:
@@ -294,30 +285,30 @@ def run_container(image, name=None, command=None, environment=None,
     if ports:
         ip = container['ip']
         for port, public_port, protocol in ports:
-            bind_process(ip, port, public_port, protocol)
+            bind_container(ip, port, public_port, protocol)
 
     return container
 
 def remove_container(id):
     sudo('docker rm %s' % id)
 
-def get_metadata(process):
+def get_metadata(container):
     with settings(hide('everything'), warn_only=True):
-        result = sudo('docker inspect %s' % process)
+        result = sudo('docker inspect %s' % container)
     if result.failed:
         return None
     return json.loads(result)
 
-def get_ip(process):
-    container = get_container(process)
+def get_ip(container):
+    container = get_container(container)
     if container:
         return container['ip']
     return None
 
-def inside(process):
-    ip = get_ip(process)
+def inside(container):
+    ip = get_ip(container)
     if not ip:
-        abort('No such container: %s' % process)
+        abort('No such container: %s' % container)
 
     # paramiko caches connections by ip. different containers often have
     # the same ip.
@@ -422,11 +413,11 @@ def get_public_ports(ip):
                 public_ports.append((match.group(2), match.group(1), protocol))
     return public_ports
 
-def bind_process(ip, port, public_port, protocol='tcp'):
-    unbind_process(ip, port, public_port)
+def bind_container(ip, port, public_port, protocol='tcp'):
+    unbind_port(port, protocol)
     sudo('iptables -t nat -A DOCKER -p %s --dport %s -j DNAT --to-destination %s:%s' % (protocol, public_port, ip, port))
 
-def unbind_process(ip, port, public_port, protocol='tcp'):
+def unbind_container(ip, port, public_port, protocol='tcp'):
     with hide('everything'):
         rules = sudo('iptables -t nat -S')
     for rule in rules.split('\r\n'):
@@ -459,7 +450,15 @@ def parse_port_spec(port_spec):
 def unbind_all(ip):
     ports = get_public_ports(ip)
     for local_port, public_port, protocol in ports:
-        unbind_process(ip, local_port, public_port, protocol)
+        unbind_container(ip, local_port, public_port, protocol)
+
+def unbind_port(public_port, protocol='tcp'):
+    with hide('everything'):
+        rules = sudo('iptables -t nat -S')
+    for rule in rules.split('\r\n'):
+        if re.search('^-A DOCKER -p %s -m %s --dport %s -j DNAT --to-destination (?P<ip>.+):(?P<local_port>[0-9]+)$' % (protocol, protocol, public_port), rule):
+            undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
+            sudo('iptables -t nat %s' % undo_rule)
 
 def pretty_container(container):
     container = container.copy()

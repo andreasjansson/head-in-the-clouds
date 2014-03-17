@@ -165,23 +165,13 @@ def get_variable_depends(dependent, servers, parts):
     if parts[0] == 'host':
         server = dependent.host
     else:
-        # if we can't find it we assume it's because we're missing the -index,
-        # and default to first. this is pretty naive.
         server_name = parts[0]
-        if server_name not in servers:
-            server_name += '-0'
-
         if server_name not in servers:
             raise ConfigException('Unknown server: %s' % parts[0])
 
         server = servers[server_name]
     if parts[1] == 'containers':
         container_name = parts[2]
-
-        # same here, default to first
-        if container_name not in server.containers:
-            container_name += '-0'
-
         if container_name not in server.containers:
             raise ConfigException('Unknown container: %s' % parts[2])
 

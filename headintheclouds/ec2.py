@@ -15,36 +15,28 @@ import fabric.api as fab
 import headintheclouds
 from headintheclouds import util, cache
 
-__all__ = ['firewall', 'spot_requests', 'cancel_spot_request']
-
-@task
-@runs_once
-def firewall(open=None, close=None, security_group='default'):
-    
-    if not open or close:
-        raise Exception('Please provide open and/or close arguments')
-    if open:
-        open = int(open)
-        _ec2().authorize_security_group(
-            security_group, ip_protocol='tcp', from_port=open, to_port=open,
-            cidr_ip='0.0.0.0/0')
-    if close:
-        close = int(close)
-        _ec2().revoke_security_group(
-            security_group, ip_protocol='tcp', from_port=open, to_port=open,
-            cidr_ip='0.0.0.0/0')
+__all__ = ['spot_requests', 'cancel_spot_request']
 
 @task
 @runs_once
 def spot_requests():
+    '''
+    List all active spot instance requests.
+    '''
     requests = _ec2().get_all_spot_instance_requests()
     util.print_table(requests, ['id', ('bid', 'price'), 'create_time',
                                 'state', 'status', 'instance_id'])
 
 @task
 @runs_once
-def cancel_spot_request():
-    pass
+def cancel_spot_request(request_id):
+    '''
+    Cancel a spot instance request.
+
+    Args:
+        request_id (str): Request ID
+    '''
+    _ec2().cancel_spot_instance_requests([request_id])
 
 create_server_defaults = {
     'size': 'm1.small',

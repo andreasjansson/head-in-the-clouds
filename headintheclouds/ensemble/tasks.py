@@ -4,6 +4,7 @@ import yaml
 
 from fabric.api import * # pylint: disable=W0614,W0401
 
+from headintheclouds.tasks import uncache
 from headintheclouds.ensemble import parse
 from headintheclouds.ensemble import dependency
 from headintheclouds.ensemble import create
@@ -11,14 +12,32 @@ from headintheclouds.ensemble import exceptions
 
 @runs_once
 @task
-def up(name, filename=None):
-    if filename is None:
-        filename = '%s.yml' % name
-    if not os.path.exists(filename):
-        abort('No such file: %s' % filename)
+def up(name):
+    '''
+    Create servers and containers as required to meet the configuration
+    specified in _name_.
+
+    Args:
+        * name: The name of the yaml config file (you can omit the .yml extension for convenience)
+
+    Example:
+        fab ensemble.up:wordpress
+    '''
+    filenames_to_try = [
+        name,
+        '%s.yml' % name,
+        '%s.yaml' % name,
+    ]
+    for filename in filenames_to_try:
+        if os.path.exists(filename):
+            break
+    else:
+        abort('Ensemble manifest not found: %s' % name)
+
     with open(filename, 'r') as f:
         config = yaml.load(f)
 
+    uncache()
     do_up(config)
 
 def do_up(config):

@@ -4,8 +4,6 @@ wordpress:
   size: m1.small
   containers:
     wordpress:
-      image: tutum/wordpress
+      image: jbfink/docker-wordpress
       ports:
         - 80
-      volumes:
-        /docker_volumes/wordpress/log: /var/log
