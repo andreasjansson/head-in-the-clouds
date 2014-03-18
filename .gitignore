@@ -5,4 +5,4 @@ headintheclouds.egg-info
 build
 dist
 MANIFEST
-doc/_build
+docs/_build

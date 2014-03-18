@@ -3,7 +3,7 @@ Ensemble
 
 This is really the sugar on the doughnut. headintheclouds.ensemble is an orchestration tool for Docker that will manage dependencies between containers, intelligently figure out what needs to change to meet the desired configuration, start servers and containers, and manage firewalls. It uses a simple YAML-based config format, and it's doing as much as possible in parallel.
 
-I built ensemble on top of headintheclouds to manage `thisismyjam.com <http://www.thisismyjam.com>`_. We're using it now for our production setup and it seems to hang together so far. The configuration format is heavily influenced by `Orchard's Fig http://orchardup.github.io/fig/>`_.
+I built ensemble on top of headintheclouds to manage `thisismyjam.com <http://www.thisismyjam.com>`_. We're using it now for our production setup and it seems to hang together so far. The configuration format is heavily influenced by `Orchard's Fig <http://orchardup.github.io/fig/>`_.
 
 Tasks
 -----

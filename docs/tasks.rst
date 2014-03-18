@@ -47,15 +47,6 @@ Digital Ocean
 * placement='New York 1': Any Digital Ocean region, e.g. 'Singapore 1', 'Amsterdam 2'
 * image='Ubuntu 12.04.3 x64': Can be any Digital Ocean image name, e.g. 'Ubuntu 13.10 x64', 'Fedora 19 x64', 'Arch Linux 2013.05 x64', etc.
 
-Provider-specific tasks
------------------------
-
-EC2
-~~~
-
-.. automodule:: headintheclouds.ec2
-   :members: spot_requests, cancel_spot_request
-
 Caching
 -------
 
