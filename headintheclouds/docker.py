@@ -148,9 +148,18 @@ def run(image, name=None, command=None, environment=None, ports=None, volumes=No
     if ports and not name:
         abort('The ports flag currently only works if you specify a container name')
 
-    ports = [parse_port_spec(p) for p in ports.split(',')]
-    environment = dict([x.split('=') for x in environment.split(',')])
-    volumes = dict([x.split('=') for x in volumes.split(',')])
+    if ports:
+        ports = [parse_port_spec(p) for p in ports.split(',')]
+    else:
+        ports = None
+    if environment:
+        environment = dict([x.split('=') for x in environment.split(',')])
+    else:
+        environment = None
+    if volumes:
+        volumes = dict([x.split(':') for x in volumes.split(',')])
+    else:
+        volumes = None
 
     run_container(
         image=image,
@@ -193,12 +202,24 @@ def pull(image):
 @cloudtask
 def inspect(container):
     '''
-    Inspect a container
+    Inspect a container. Same as running ``docker inspect CONTAINER``
+    on the host.
 
     Args:
         container: Container name or ID
     '''
     sudo('docker inspect %s' % container)
+
+@cloudtask
+def logs(container):
+    '''
+    Get logs from the container. Same as running ``docker logs CONTAINER``
+    on the host.    
+
+    Args:
+        container: Container name or ID
+    '''
+    sudo('docker logs %s' % container)
 
 @cloudtask
 def tunnel(container, local_port, remote_port=None, gateway_port=None):
@@ -284,6 +305,8 @@ def run_container(image, name=None, command=None, environment=None,
     container = get_container(name)
     if ports:
         ip = container['ip']
+        if not ip:
+            raise Exception('Failed to get container IP')
         for port, public_port, protocol in ports:
             bind_container(ip, port, public_port, protocol)
 
@@ -360,7 +383,10 @@ def get_container(id):
     running = state == 'running'
 
     # for some reason docker run's syntax is inconsistent with its internal representation
-    volumes = {v: k for k, v in metadata['Volumes'].items()}
+    if metadata['Volumes']:
+        volumes = {v: k for k, v in metadata['Volumes'].items()}
+    else:
+        volumes = {}
 
     image = metadata['Config']['Image']
     return {
@@ -397,7 +423,7 @@ def get_container_ids():
     container_ids = []
     with hide('everything'):
         output = sudo('docker ps')
-    for line in output.split('\r\n')[1:]:
+    for line in output.splitlines()[1:]:
         id = line.split(' ', 1)[0]
         container_ids.append(id)
     return container_ids
@@ -407,20 +433,20 @@ def get_public_ports(ip):
         rules = sudo('iptables -t nat -S')
     public_ports = []
     for protocol in ('tcp', 'udp'):
-        for rule in rules.split('\r\n'):
+        for rule in rules.splitlines():
             match = re.search('^-A DOCKER -p %s -m %s --dport ([0-9]+) -j DNAT --to-destination %s:([0-9]+)' % (protocol, protocol, ip), rule)
             if match:
                 public_ports.append((match.group(2), match.group(1), protocol))
     return public_ports
 
 def bind_container(ip, port, public_port, protocol='tcp'):
-    unbind_port(port, protocol)
+    unbind_port(public_port, protocol)
     sudo('iptables -t nat -A DOCKER -p %s --dport %s -j DNAT --to-destination %s:%s' % (protocol, public_port, ip, port))
 
 def unbind_container(ip, port, public_port, protocol='tcp'):
     with hide('everything'):
         rules = sudo('iptables -t nat -S')
-    for rule in rules.split('\r\n'):
+    for rule in rules.splitlines():
         if re.search('^-A DOCKER -p %s -m %s --dport %s -j DNAT --to-destination %s:%s' % (protocol, protocol, public_port, ip, port), rule):
             undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
             sudo('iptables -t nat %s' % undo_rule)
@@ -455,7 +481,7 @@ def unbind_all(ip):
 def unbind_port(public_port, protocol='tcp'):
     with hide('everything'):
         rules = sudo('iptables -t nat -S')
-    for rule in rules.split('\r\n'):
+    for rule in rules.splitlines():
         if re.search('^-A DOCKER -p %s -m %s --dport %s -j DNAT --to-destination (?P<ip>.+):(?P<local_port>[0-9]+)$' % (protocol, protocol, public_port), rule):
             undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
             sudo('iptables -t nat %s' % undo_rule)
