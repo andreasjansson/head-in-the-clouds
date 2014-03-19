@@ -53,8 +53,6 @@ def process_dependencies(servers, existing_servers):
 
     remaining = set(new_index)
     while remaining:
-        # TODO: do this in parallel just like create does
-
         free_nodes = dependency_graph.get_free_nodes(remaining)
         if free_nodes:
             next_things = free_nodes
