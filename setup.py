@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='headintheclouds',
-      version='0.3.0',
+      version='0.3.6',
       description='Provider-agnostic cloud provisioning and Docker orchestration',
       author='Andreas Jansson',
       author_email='andreas@jansson.me.uk',
@@ -15,6 +15,9 @@ setup(name='headintheclouds',
           'dop==0.1.4',
           'python-dateutil==2.1',
           'simplejson',
-          'PyDbLite==2.5',
-      ]
+          'PyDbLite>=2.5.0',
+      ],
+      dependency_links = [
+          'http://downloads.sourceforge.net/project/pydblite/pydblite/PyDbLite-2.5/PyDbLite-2.5.zip#egg=PyDbLite-2.5.0'
+      ],
   )

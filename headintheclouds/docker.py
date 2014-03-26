@@ -185,9 +185,9 @@ def kill(container, rm=True):
         abort('No such container: %s' % container)
     unbind_all(container['ip'])
 
-    sudo('docker kill %s' % container)
+    sudo('docker kill %s' % container['name'])
     if rm:
-        sudo('docker rm %s' % container)
+        sudo('docker rm %s' % container['name'])
 
 @cloudtask
 def pull(image):
