@@ -98,6 +98,8 @@ class UpProcess(multiprocessing.Process):
         exception = None
         created_things = None
         try:
+            self.thing.pre_create()
+
             if self.thing_to_delete:
                 self.thing_to_delete.delete()
 

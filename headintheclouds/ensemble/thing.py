@@ -11,6 +11,9 @@ class Thing(object):
         for prop, value in fields:
             self.fields[prop] = value
 
+    def pre_create(self):
+        pass
+
 class FieldList(dict):
 
     def __getitem__(self, field_index):

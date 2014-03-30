@@ -73,15 +73,22 @@ class Container(Thing):
         self.host = host
         self.fields.update(kwargs)
         self.fields['name'] = name
+        self._pulled_image_id = None
 
     def is_active(self):
         return self.fields['running']
 
-    def create(self):
+    def pre_create(self):
         with remote.host_settings(self.host):
             with fab.hide('output'):
-                image_id = docker.pull_image(self.fields['image'])
-            if not image_id:
+                self._pulled_image_id = docker.pull_image(self.fields['image'])
+
+    def create(self):
+        with remote.host_settings(self.host):
+            if not self._pulled_image_id:
+                with fab.hide('output'):
+                    self._pulled_image_id = docker.pull_image(self.fields['image'])
+            if not self._pulled_image_id:
                 raise ConfigException('Image not found: "%s"' % self.fields['image'])
             container = docker.run_container(
                 image=self.fields['image'],

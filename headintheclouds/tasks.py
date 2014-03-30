@@ -1,7 +1,6 @@
+import time
 from functools import wraps
-from fabric.contrib.console import confirm
 from fabric.api import * # pylint: disable=W0614,W0401
-import fabric.api as fab
 
 from headintheclouds import provider_settings, provider_by_name, this_provider
 from headintheclouds import cache
@@ -27,7 +26,7 @@ def nodes():
 @task
 @runs_once
 def create(provider, count=1, name=None, **kwargs):
-    '''
+    r'''
     Create one or more cloud servers
 
     Args:
@@ -50,6 +49,8 @@ def terminate():
     '''
     Terminate server(s)
     '''
+    print 'Sleeping for ten seconds so you can change your mind if you want to!!!'
+    time.sleep(10)
     this_provider().terminate()
 
 @cloudtask
