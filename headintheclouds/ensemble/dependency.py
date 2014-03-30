@@ -2,6 +2,8 @@ import re
 import collections
 import simplejson as json
 import multiprocessing
+import time
+import random
 import fabric
 
 from headintheclouds.ensemble.dependencygraph import DependencyGraph
@@ -65,6 +67,8 @@ def process_dependencies(servers, existing_servers):
             process = DependencyProcess(
                 new_index[thing_name], existing_index.get(thing_name), queue)
             process.start()
+            # race conditions fml
+            time.sleep(random.random() * .1)
 
         for _ in next_things:
             new_thing, existing_thing, is_changing, is_new, exception = queue.get()
