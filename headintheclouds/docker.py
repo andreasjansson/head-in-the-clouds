@@ -521,6 +521,8 @@ def parse_image_name(name):
          (?::(?P<tag>.+))?$
     '''
     match = re.match(regex, name, re.VERBOSE)
+    if not match:
+        raise ValueError('Invalid image name: "%s"' % name)
     groups = match.groupdict()
     return (groups['registry'] or 'index.docker.io',
             groups['namespace'],

@@ -83,9 +83,14 @@ def parse_container(container_name, spec, server, templates):
     count = spec.pop('count', 1)
 
     valid_fields = set(Container.field_parsers)
-    if set(spec) - valid_fields:
+    invalid_fields = set(spec) - valid_fields
+
+    if invalid_fields:
         raise ConfigException(
-            'Invalid fields: %s' % ', '.join(set(spec) - valid_fields))
+            'Invalid fields: %s' % ', '.join([str(x) for x in invalid_fields]))
+
+    if 'image' not in spec:
+        raise ConfigException('Containers require an image')
 
     for i in range(count):
         if i == 0:

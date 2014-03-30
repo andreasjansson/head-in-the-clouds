@@ -38,7 +38,10 @@ def up(name):
         config = yaml.load(f)
 
     uncache()
-    do_up(config)
+    try:
+        do_up(config)
+    except exceptions.ConfigException, e:
+        abort('Config error: ' + str(e))
 
 def do_up(config):
     servers = parse.parse_config(config)

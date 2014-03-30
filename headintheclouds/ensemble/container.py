@@ -79,7 +79,10 @@ class Container(Thing):
 
     def create(self):
         with remote.host_settings(self.host):
-            docker.pull_image(self.fields['image'])
+            with fab.hide('output'):
+                image_id = docker.pull_image(self.fields['image'])
+            if not image_id:
+                raise ConfigException('Image not found: "%s"' % self.fields['image'])
             container = docker.run_container(
                 image=self.fields['image'],
                 name=self.fields['name'],

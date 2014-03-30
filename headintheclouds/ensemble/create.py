@@ -42,7 +42,10 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
             if not free_nodes:
                 raise exceptions.RuntimeException('No free nodes in the dependency graph!')
 
-        completed_things = queue.get()
+        completed_things, exception = queue.get()
+        if exception:
+            raise exception
+
         for t in completed_things:
             thing_index[t.thing_name()] = t
             thingindex.refresh_thing_index(thing_index)
@@ -92,11 +95,17 @@ class UpProcess(multiprocessing.Process):
         if MULTI_THREADED:
             fabric.network.disconnect_all()
 
-        if self.thing_to_delete:
-            self.thing_to_delete.delete()
+        exception = None
+        created_things = None
+        try:
+            if self.thing_to_delete:
+                self.thing_to_delete.delete()
 
-        created_things = self.thing.create()
-        self.queue.put(created_things)
+            created_things = self.thing.create()
+        except Exception, e:
+            exception = e
+
+        self.queue.put((created_things, exception))
 
 def confirm_changes(changes):
     if changes.get('new_servers', None):
