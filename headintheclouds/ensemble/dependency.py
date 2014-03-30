@@ -68,7 +68,7 @@ def process_dependencies(servers, existing_servers):
                 new_index[thing_name], existing_index.get(thing_name), queue)
             process.start()
             # race conditions fml
-            time.sleep(random.random() * .1)
+            time.sleep(random.random() * .5)
 
         for _ in next_things:
             new_thing, existing_thing, is_changing, is_new, exception = queue.get()
