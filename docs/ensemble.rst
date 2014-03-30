@@ -229,3 +229,37 @@ This is how headintheclouds.ensemble is idempotent. You can run ``fab ensemble.u
 Before going out starting servers and containers, headintheclouds will prompt you to confirm the changes that will be made.
 
 The only caveat is that headintheclouds doesn't currently delete servers and containers if you remove them from the manifest, you have to do that manually with the ``terminate`` and ``docker.kill`` commands. That's just so you don't go and tear things don't by accident.
+
+Server names and roles
+----------------------
+
+If you have a conf YAML file like this
+
+.. code-block:: yaml
+
+   foo:
+     provider: ec2
+     [snip]
+
+   bar:
+     [snip]
+     containers:
+       blah:
+         image: some/image
+         environment:
+           FOO_NAME: ${foo.name}
+     count: 2
+
+``foo`` and ``bar`` are the *names* of the servers. But when using Fabric, *role* is synonymous with name. So you could do
+
+::
+
+   fab -R bar ping
+
+to ping both of the ``bar`` server. To access a single one, you'd have to use the ``-H`` Fabric flag, e.g.
+
+::
+
+   fab -H 123.45.67.89 ssh
+
+(assuming 123.45.67.89 is the IP of one of the ``bar`` servers).

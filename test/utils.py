@@ -21,5 +21,7 @@ def done_with_server(ip):
         with settings(ip):
             digitalocean.terminate()
 
-def settings(ip):
-    return fab.settings(host_string=ip, host=ip, **digitalocean.settings)
+def settings(ip, **other_settings):
+    all_other_settings = digitalocean.settings
+    all_other_settings.update(other_settings)
+    return fab.settings(host_string=ip, host=ip, **all_other_settings)
