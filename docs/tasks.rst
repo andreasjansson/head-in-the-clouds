@@ -64,6 +64,7 @@ By default, all cloud servers created by headintheclouds will have their names p
 after you import ``*`` from ``fabric.api``, but **before importing headintheclouds**. So, for example
 
 ::
+
    from fabric.api import *
 
    env.name_prefix = 'INFRA-'
