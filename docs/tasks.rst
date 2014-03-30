@@ -51,3 +51,26 @@ Caching
 -------
 
 headintheclouds caches some data in `PyDbLite <http://www.pydblite.net/en/index.html>`_, most importantly the list of active nodes. This is so that calls like ``fab ssh`` doesn't take several seconds to run before actually logging in. It's possible to get into weird situations when other users create servers and you have the old cache. To flush the cache you can run ``fab uncache``. ``fab nodes`` and ``fab ensemble.up`` both flush the cache indirectly.
+
+Namespacing
+-----------
+
+By default, all cloud servers created by headintheclouds will have their names prefixed by HITC-. This is so that headintheclouds-managed infrastructure doesn't interfere with other servers you might have. You can change this prefix by putting the line
+
+::
+
+   env.name_prefix = 'MYPREFIX-'
+
+after you import ``*`` from ``fabric.api``, but **before importing headintheclouds**. So, for example
+
+::
+   from fabric.api import *
+
+   env.name_prefix = 'INFRA-'
+
+   from headintheclouds import ec2
+   from headintheclouds import digitalocean
+   from headintheclouds import unmanaged
+   from headintheclouds import docker
+   from headintheclouds import ensemble
+   from headintheclouds.tasks import *
