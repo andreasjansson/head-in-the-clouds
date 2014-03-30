@@ -1,9 +1,36 @@
 wordpress:
-  provider: ec2
-  image: ubuntu 12.04
-  size: m1.small
+  provider: digitalocean
+  size: 512MB
   containers:
     wordpress:
       image: jbfink/docker-wordpress
       ports:
         - 80
+    serverstats:
+      image: andreasjansson/collectd-write-graphite
+      environment:
+        HOST_NAME: ${host.name}
+        GRAPHITE_HOST: ${graphite.ip}
+        # hack to make sure the graphite.containers.graphite container
+        # is up before we start streaming data to it
+        _DEPENDS: ${graphite.containers.graphite.ip}
+  firewall:
+    template: default_firewall
+
+graphite:
+  provider: digitalocean
+  size: 512MB
+  containers:
+    graphite:
+      image: andreasjansson/graphite
+      ports:
+        - 80
+        - 2003
+  firewall:
+    template: default_firewall
+
+templates:
+  default_firewall:
+    22: "*"
+    80: "*"
+    "*/*": $internal_ips
