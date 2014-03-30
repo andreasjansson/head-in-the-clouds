@@ -89,3 +89,4 @@ That's pretty much it for a super basic tutorial. Let's kill the server
 
 Now `fab nodes` will be empty again.
 
+A [more interesting Wordpress example](https://github.com/andreasjansson/head-in-the-clouds/blob/master/examples/wordpress.yml) can be found in the /examples directory.

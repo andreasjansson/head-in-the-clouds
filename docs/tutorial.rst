@@ -97,4 +97,4 @@ That's pretty much it for a super basic tutorial. Let's kill the server
 
 Now ``fab nodes`` will be empty again.
 
-A slightly longer Wordpress can be found in the /examples directory.
+A `more interesting Wordpress example <https://github.com/andreasjansson/head-in-the-clouds/blob/master/examples/wordpress.yml>`_ can be found in the /examples directory.
