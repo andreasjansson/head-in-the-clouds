@@ -48,7 +48,8 @@ def rules_are_active(open_list, from_chain='INPUT'):
     new_rules = [r for r in new_rules if r != flush_chain]
     existing_rules = get_rules()
 
-    return new_rules == existing_rules
+    # it's a bit silly but we don't actually care about order
+    return set(new_rules) == set(existing_rules)
 
 def has_chain():
     with settings(hide('everything'), warn_only=True):
