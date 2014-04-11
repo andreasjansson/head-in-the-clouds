@@ -13,7 +13,7 @@ from headintheclouds import util, cache
 create_server_defaults = {
     'size': '512MB',
     'placement': 'New York 1',
-    'image': 'Ubuntu 12.04.3 x64',
+    'image': 'Ubuntu 12.04.4 x64',
 }
 
 __all__ = []
