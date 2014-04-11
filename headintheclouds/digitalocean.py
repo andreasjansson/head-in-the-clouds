@@ -205,7 +205,7 @@ def _get_sizes():
 def _get_images():
     images = [s.to_json() for s in _do().images()]
     images = {s['name']: s['id'] for s in images}
-    for image_id, image_name in DEPRECATED_IMAGE_IDS:
+    for image_id, image_name in DEPRECATED_IMAGE_IDS.items():
         images[image_name] = image_id
     return images
 
