@@ -10,13 +10,18 @@ import fabric.api as fab
 import headintheclouds
 from headintheclouds import util, cache
 
+__all__ = []
+
 create_server_defaults = {
     'size': '512MB',
     'placement': 'New York 1',
     'image': 'Ubuntu 12.04.3 x64',
 }
 
-__all__ = []
+DEPRECATED_IMAGE_IDS = {
+    284203: 'Ubuntu 12.04',
+    1505447: 'Ubuntu 12.04.3 x64',
+}
 
 def create_servers(count, names=None, size=None, placement=None, image=None):
     count = int(count)
@@ -148,8 +153,7 @@ def droplet_to_node(droplet):
     try:
         node['image'] = flip_dict(_get_images())[droplet.image_id]
     except Exception:
-        deprecated_image_ids = {284203: 'Ubuntu 12.04'}
-        node['image'] = deprecated_image_ids.get(droplet.image_id, 'unknown')
+        node['image'] = DEPRECATED_IMAGE_IDS.get(droplet.image_id, 'unknown')
     node['ip'] = droplet.ip_address
     node['internal_address'] = droplet.ip_address
     node['internal_ip'] = droplet.ip_address
