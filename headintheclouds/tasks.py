@@ -93,13 +93,13 @@ def ssh(cmd=''):
 
 @task
 @runs_once
-def pricing():
+def pricing(sort='cost'):
     '''
     Print pricing tables for all enabled providers
     '''
     for name, provider in env.providers.items():
         print name
-        provider.pricing()
+        provider.pricing(sort)
         print
 
 @cloudtask

@@ -7,7 +7,7 @@ from functools import wraps
 import inspect
 from fabric.api import *
 
-def print_table(table, columns=None, sort=None):
+def print_table(table, columns=None, sort=None, default_sort=None):
     def is_number(x):
         try:
             float(re.sub('[kMGTP]B$', '', x))
@@ -27,11 +27,16 @@ def print_table(table, columns=None, sort=None):
                 alias = column
             column_aliases[alias] = column
         def sort_key(x):
-            column = column_aliases[sort]
+            if sort in column_aliases:
+                column = column_aliases[sort]
+            elif default_sort and default_sort in column_aliases:
+                column = column_aliases[default_sort]
+            else:
+                column = columns[0]
             try:
                 return x[column]
             except (KeyError, TypeError):
-                return getattr(x, column)
+                return getattr(x, column, None)
         table.sort(key=sort_key)
 
     column_names = []

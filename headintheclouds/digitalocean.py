@@ -101,17 +101,11 @@ def nodes():
     nodes = cache.recache(all_nodes)
     util.print_table(nodes, ['name', 'size', 'ip', 'state'], sort='name')
 
-@task
-@runs_once
-def pricing():
-    sizes = _get_sizes()
-    def get_size(x):
-        replacements = {'MB': '', 'GB': '000', 'TB': '000000'}
-        for a, b in replacements.iteritems():
-            if a in x:
-                return int(x.replace(a, b))
-    util.print_table([get_node_types()[s] for s in sorted(sizes, key=get_size)],
-                     ['memory', 'cores', 'disk', 'transfer', 'cost'])
+def pricing(sort='cost'):
+    node_types = get_node_types().values()
+    util.print_table(node_types,
+                     ['size', 'memory', 'cores', 'disk', 'transfer', 'cost'],
+                     sort=sort, default_sort='memory')
 
 def rename(name):
     current_node = _host_node()
@@ -248,73 +242,83 @@ def _get_ssh_key_id(ssh_key):
 def get_node_types():
     return {
         '512MB': {
-            'cost': '0.007',
-            'memory': '512MB',
-            'cores': '1',
-            'disk': '20GB',
+            'size': '512MB',
+            'cost': 0.007,
+            'memory': 0.5,
+            'cores': 1,
+            'disk': 20,
             'transfer': '1TB',
         },
         '1GB': {
-            'cost': '0.015',
-            'memory': '1GB',
-            'cores': '1',
-            'disk': '30GB',
+            'size': '1GB',
+            'cost': 0.015,
+            'memory': 1,
+            'cores': 1,
+            'disk': 30,
             'transfer': '2TB',
         },
         '2GB': {
-            'cost': '0.030',
-            'memory': '2GB',
-            'cores': '2',
-            'disk': '40GB',
+            'size': '2GB',
+            'cost': 0.030,
+            'memory': 2,
+            'cores': 2,
+            'disk': 40,
             'transfer': '3TB',
         },
         '4GB': {
-            'cost': '0.060',
-            'memory': '4GB',
-            'cores': '2',
-            'disk': '60GB',
+            'size': '4GB',
+            'cost': 0.060,
+            'memory': 4,
+            'cores': 2,
+            'disk': 60,
             'transfer': '4TB',
         },
         '8GB': {
-            'cost': '0.119',
-            'memory': '8GB',
-            'cores': '4',
-            'disk': '80GB',
+            'size': '8GB',
+            'cost': 0.119,
+            'memory': 8,
+            'cores': 4,
+            'disk': 80,
             'transfer': '5TB',
         },
         '16GB': {
-            'cost': '0.238',
-            'memory': '16GB',
-            'cores': '8',
-            'disk': '160GB',
+            'size': '16GB',
+            'cost': 0.238,
+            'memory': 16,
+            'cores': 8,
+            'disk': 160,
             'transfer': '6TB',
         },
         '32GB': {
-            'cost': '0.476',
-            'memory': '32GB',
-            'cores': '12',
-            'disk': '320GB',
+            'size': '32GB',
+            'cost': 0.476,
+            'memory': 32,
+            'cores': 12,
+            'disk': 320,
             'transfer': '7TB',
         },
         '48GB': {
-            'cost': '0.705',
-            'memory': '48GB',
-            'cores': '16',
-            'disk': '480GB',
+            'size': '48GB',
+            'cost': 0.705,
+            'memory': 48,
+            'cores': 16,
+            'disk': 480,
             'transfer': '8TB',
         },
         '64GB': {
-            'cost': '0.941',
-            'memory': '64GB',
-            'cores': '20',
-            'disk': '640GB',
+            'size': '64GB',
+            'cost': 0.941,
+            'memory': 64,
+            'cores': 20,
+            'disk': 640,
             'transfer': '9TB',
         },
         '96GB': {
-            'cost': '1.411',
-            'memory': '96GB',
-            'cores': '24',
-            'disk': '960GB',
+            'size': '96GB',
+            'cost': 1.411,
+            'memory': 96,
+            'cores': 24,
+            'disk': 960,
             'transfer': '10TB',
         },
     }

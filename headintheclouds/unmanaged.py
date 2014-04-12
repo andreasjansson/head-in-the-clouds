@@ -13,7 +13,7 @@ SERVERS_LIST_FILENAME = 'unmanaged_servers.txt'
 def terminate():
     raise NotImplementedError()
 
-def pricing():
+def pricing(sort=None):
     print 'No pricing for unmanaged servers'
 
 def rename():
