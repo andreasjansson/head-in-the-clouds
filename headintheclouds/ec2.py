@@ -1,5 +1,3 @@
-# TODO: get rid of _get_image_id_for_size and just have a map of aliases
-
 import boto.ec2
 import boto
 import datetime
@@ -8,6 +6,7 @@ import time
 import sys
 import re
 import requests
+import yaml
 
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
@@ -254,11 +253,12 @@ def rename(name):
 def get_node_types():
     node_types = {}
 
-    r = requests.get('http://aws.amazon.com/ec2/pricing/json/linux-od.json')
+    r = requests.get('http://a0.awsstatic.com/pricing/1.0.19/ec2/linux-od.min.js')
     if not r:
         return {}
 
-    data = r.json()
+    data = parse_jsonp(r.content)
+
     instance_types = [r['instanceTypes'] for r in data['config']['regions']
                       if r['region'] == 'us-east'][0]
     for instance_type in instance_types:
@@ -266,8 +266,9 @@ def get_node_types():
             node_type = {}
             size = size_block['size']
             value_columns = size_block['valueColumns']
-            node_type['linux_cost'] = float([c['prices']['USD'] for c in value_columns
-                                             if c['name'] == 'linux'][0])
+            linux_columns = [c for c in value_columns if c['name'] in ('linux', 'os')]
+            linux_column = linux_columns[0]
+            node_type['linux_cost'] = float(linux_column['prices']['USD'])
             node_type['memory'] = float(size_block['memoryGiB'])
             node_type['storage'] = size_block['storageGB']
             node_type['cores'] = size_block['vCPU']
@@ -277,6 +278,11 @@ def get_node_types():
             node_types[size] = node_type
 
     return node_types
+
+def parse_jsonp(content):
+    insides = content.split('callback(', 1)[1].rsplit(');')[0]
+    yamlable = insides.replace(':', ': ')
+    return yaml.load(yamlable)
 
 @cache.cached
 def all_nodes():
