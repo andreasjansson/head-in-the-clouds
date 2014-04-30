@@ -37,7 +37,7 @@ EC2
 * size='m1.small': See ``fab pricing`` for details
 * placment='us-east-1b'
 * bid=None: Define this to make spot requests
-* image='ubuntu 12.04': Either an AMI ID or a shorthand Ubuntu version. The defined shorthands are 'ubuntu 12.04', 'ubuntu 12.04 ebs', 'ubuntu 12.04 hvm', [...], 'ubuntu 13.10', 'ubuntu 13.10 ebs', 'ubuntu 13.10 hvm', where no 'ebs' or 'hvm' suffix indicate instance backing.
+* image='ubuntu 14.04': Either an AMI ID or a shorthand Ubuntu version. The defined shorthands are 'ubuntu 14.04', 'ubuntu 14.04 ebs', 'ubuntu 14.04 hvm', where no 'ebs' or 'hvm' suffix indicate instance backing.
 * security_group='default'
 
 Digital Ocean
@@ -45,7 +45,7 @@ Digital Ocean
 
 * size='512MB': Can be 512MB, 1GB, 2GB, [...], 96GB. See ``fab pricing`` for details
 * placement='New York 1': Any Digital Ocean region, e.g. 'Singapore 1', 'Amsterdam 2'
-* image='Ubuntu 12.04.3 x64': Can be any Digital Ocean image name, e.g. 'Ubuntu 13.10 x64', 'Fedora 19 x64', 'Arch Linux 2013.05 x64', etc.
+* image='Ubuntu 14.04 x64': Can be any Digital Ocean image name, e.g. 'Ubuntu 14.04 x64', 'Fedora 19 x64', 'Arch Linux 2013.05 x64', etc.
 
 Caching
 -------

@@ -212,7 +212,7 @@ def _get_regions():
 
 @cache.cached
 def _get_ssh_keys():
-    ssh_keys = [s.to_json() for s in _do().all_ssh_keys()]
+    ssh_keys = [s.to_json() for s in _do().ssh_keys()]
     ssh_keys = {s['name']: s['id'] for s in ssh_keys}
     return ssh_keys
 

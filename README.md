@@ -46,7 +46,7 @@ In the same directory, create a file called `wordpress.yml` with the contents
     # wordpress.yml
     wordpress:
       provider: ec2
-      image: ubuntu 12.04
+      image: ubuntu 14.04
       size: m1.small
       containers:
         wordpress:

@@ -3,7 +3,7 @@
 test:
   provider: ec2
   size: m1.small
-  image: ubuntu 12.04
+  image: ubuntu 14.04
   placement: us-east-1c
   containers:
     foo:
@@ -18,7 +18,7 @@ test:
 scratch:
   provider: ec2
   size: m1.small
-  image: ubuntu 12.04
+  image: ubuntu 14.04
   containers:
     baz:
       image: jprjr/docker-tinyfs

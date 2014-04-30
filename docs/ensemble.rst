@@ -37,7 +37,7 @@ Configuration YAML schema
      # provider-specific create flags in the Tasks section
      # Examples for an EC2 instance:
      size: m1.small
-     image: ubuntu 12.04
+     image: ubuntu 14.04
      security_group: web_ssh
 
      # The containers to run
