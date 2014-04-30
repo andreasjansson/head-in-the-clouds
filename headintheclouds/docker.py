@@ -109,21 +109,9 @@ def setup(version=None):
         if not fab.run('which docker').failed:
             return
 
-    sudo('sh -c "wget -qO- https://get.docker.io/gpg | apt-key add -"')
-    sudo('sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
     sudo('apt-get update')
-    sudo('apt-get -y install linux-image-extra-virtual')
-
-    with settings(warn_only=True):
-        # this seems to fail occasionally, but seems to work
-        # second time. computer:(
-        for retry in range(3):
-            ret = sudo('apt-get -y install lxc-docker-%s' % version)
-            if ret.succeeded:
-                break
-            sudo('apt-get update')
-
-    sudo('apt-get -y install sshpass curl')
+    sudo('apt-get -y install sshpass curl docker.io')
+    sudo('ln -s /usr/bin/docker.io /usr/bin/docker')
 
 @cloudtask
 @parallel

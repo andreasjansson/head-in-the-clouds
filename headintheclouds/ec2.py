@@ -38,10 +38,10 @@ def cancel_spot_request(request_id):
     _ec2().cancel_spot_instance_requests([request_id])
 
 create_server_defaults = {
-    'size': 'm3.small',
+    'size': 'm1.small',
     'placement': 'us-east-1b',
     'bid': '',
-    'image': 'ubuntu 12.04',
+    'image': 'ubuntu 14.04',
     'security_group': 'default',
 }
 
@@ -341,18 +341,21 @@ def _unalias_image(image):
     return IMAGE_ALIASES.get(image.lower(), image)
 
 IMAGE_ALIASES = {
-    ('ubuntu 12.04'):      'ami-ad3660c4',
-    ('ubuntu 12.04 ebs'):  'ami-a73264ce',
-    ('ubuntu 12.04 hvm'):  'ami-b93264d0',
-    ('ubuntu 12.10'):      'ami-a9cf9bc0',
-    ('ubuntu 12.10 ebs'):  'ami-2bc99d42',
-    ('ubuntu 12.10 hvm'):  'ami-2dc99d44',
-    ('ubuntu 13.04'):      'ami-762d491f',
-    ('ubuntu 13.04 ebs'):  'ami-10314d79',
-    ('ubuntu 13.04 hvm'):  'ami-e1277b88',
-    ('ubuntu 13.10'):      'ami-271a484e',
-    ('ubuntu 13.10 ebs'):  'ami-ad184ac4',
-    ('ubuntu 13.10 hvm'):  'ami-a1184ac8',
+    'ubuntu 12.04':      'ami-ad3660c4',
+    'ubuntu 12.04 ebs':  'ami-a73264ce',
+    'ubuntu 12.04 hvm':  'ami-b93264d0',
+    'ubuntu 12.10':      'ami-a9cf9bc0',
+    'ubuntu 12.10 ebs':  'ami-2bc99d42',
+    'ubuntu 12.10 hvm':  'ami-2dc99d44',
+    'ubuntu 13.04':      'ami-762d491f',
+    'ubuntu 13.04 ebs':  'ami-10314d79',
+    'ubuntu 13.04 hvm':  'ami-e1277b88',
+    'ubuntu 13.10':      'ami-271a484e',
+    'ubuntu 13.10 ebs':  'ami-ad184ac4',
+    'ubuntu 13.10 hvm':  'ami-a1184ac8',
+    'ubuntu 14.04':      'ami-1e917676',
+    'ubuntu 14.04 ebs':  'ami-e4f7108c',
+    'ubuntu 14.04 hvm':  'ami-b6f710de',
 }
 
 ACCESS_KEY_ID = util.env_var('AWS_ACCESS_KEY_ID')

@@ -55,6 +55,7 @@ def this_provider():
     else:
         if env.host in env.node_providers:
             return env.node_providers[env.host]
+    raise Exception('Unknown host')
 
 def all_nodes():
     nodes = []

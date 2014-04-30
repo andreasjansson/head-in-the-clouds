@@ -7,7 +7,7 @@ def get_server():
         return config.get('ip')
 
     nodes = digitalocean.create_servers(
-        count=1, size='512MB', image='Ubuntu 12.04.4 x64',
+        count=1, size='512MB', image=digitalocean.create_server_defaults['image'],
         names=['unit-test-server'], placement='New York 1'
     )
 

@@ -459,7 +459,7 @@ class TestParseRealConfigs(unittest.TestCase):
 foo:
   provider: ec2
   size: m3.medium
-  image: ubuntu 12.04
+  image: ubuntu 14.04
   containers:
     foo:
       image: quay.io/example/foo
@@ -475,7 +475,7 @@ foo:
 bar:
   provider: ec2
   size: m1.small
-  image: ubuntu 12.04
+  image: ubuntu 14.04
   containers:
     qux:
       image: quay.io/example/qux
@@ -488,7 +488,7 @@ bar:
                 name='foo',
                 provider='ec2',
                 size='m3.medium',
-                image='ami-ad3660c4')
+                image='ami-1e917676')
         foo0.containers={
             'foo': Container(
                 name='foo',
@@ -511,7 +511,7 @@ bar:
                 name='foo-1',
                 provider='ec2',
                 size='m3.medium',
-                image='ami-ad3660c4')
+                image='ami-1e917676')
         foo1.containers={
             'foo': Container(
                 name='foo',
@@ -533,7 +533,7 @@ bar:
         bar0 = Server(
             name='bar',
             provider='ec2',
-            image='ami-ad3660c4',
+            image='ami-1e917676',
             size='m1.small')
         bar0.containers={
             'qux': Container(

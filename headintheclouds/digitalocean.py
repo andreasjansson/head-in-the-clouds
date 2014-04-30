@@ -15,7 +15,7 @@ __all__ = []
 create_server_defaults = {
     'size': '512MB',
     'placement': 'New York 1',
-    'image': 'Ubuntu 12.04.4 x64',
+    'image': 'Ubuntu 14.04 x64',
 }
 
 DEPRECATED_IMAGE_IDS = {
