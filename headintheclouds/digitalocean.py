@@ -83,7 +83,8 @@ def wait_for_instances_to_become_accessible(droplet_ids):
         time.sleep(5)
 
 def validate_create_options(size, placement, image):
-    _get_size_id(size)
+    # don't validate size for now, sizes get out of date really quickly
+    # _get_size_id(size)
     _get_image_id(image)
     _get_region_id(placement)
     return {}

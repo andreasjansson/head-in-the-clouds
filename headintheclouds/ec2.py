@@ -232,8 +232,9 @@ def create_spot_instances(count, size, placement, image, names, bid, security_gr
 def validate_create_options(size, placement, bid, image, security_group, prefer_ebs=False):
     updates = {}
 
-    if size is not None and size not in get_node_types():
-        raise Exception('Unknown EC2 instance size: "%s"' % size)
+    # don't validate size for now, sizes get out of date really quickly
+    # if size is not None and size not in get_node_types():
+    #     raise Exception('Unknown EC2 instance size: "%s"' % size)
 
     if size is None:
         raise Exception('You need to specify a size')
