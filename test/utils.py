@@ -7,12 +7,9 @@ def get_server():
         return config.get('ip')
 
     nodes = digitalocean.create_servers(
-        count=1, size='512MB', image='Ubuntu 12.04.3 x64',
+        count=1, size='512MB', image='Ubuntu 12.04.4 x64',
         names=['unit-test-server'], placement='New York 1'
     )
-
-    import time
-    time.sleep(20)
 
     return nodes[0]['ip']
 
@@ -24,4 +21,4 @@ def done_with_server(ip):
 def settings(ip, **other_settings):
     all_other_settings = digitalocean.settings
     all_other_settings.update(other_settings)
-    return fab.settings(host_string=ip, host=ip, **all_other_settings)
+    return fab.settings(host_string=ip, host=ip, provider='digitalocean', **all_other_settings)

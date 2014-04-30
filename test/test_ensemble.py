@@ -223,7 +223,7 @@ class TestProcessDependencies(unittest.TestCase):
         }
         servers = {'foo': foo}
 
-        e_foo = Server(name='foo', provider='ec2', size='m1.large', running=True)
+        e_foo = Server(name='foo', provider='ec2', size='m3.large', running=True)
         e_foo.containers = {
             'baz': Container(
                 name='baz',
@@ -347,7 +347,7 @@ class TestParseServer(unittest.TestCase):
     def test_fields(self):
         config = {
             'provider': 'ec2',
-            'size': 'm1.large',
+            'size': 'm3.large',
             'image': 'foobar',
             'placement': 'us-east-1b',
             'bid': 0.2,
@@ -357,7 +357,7 @@ class TestParseServer(unittest.TestCase):
             'serv': Server(
                 name='serv',
                 provider='ec2',
-                size='m1.large',
+                size='m3.large',
                 image='foobar',
                 placement='us-east-1b',
                 bid=0.2,
@@ -458,7 +458,7 @@ class TestParseRealConfigs(unittest.TestCase):
         config_yaml = '''
 foo:
   provider: ec2
-  size: m1.medium
+  size: m3.medium
   image: ubuntu 12.04
   containers:
     foo:
@@ -487,7 +487,7 @@ bar:
         foo0 = Server(
                 name='foo',
                 provider='ec2',
-                size='m1.medium',
+                size='m3.medium',
                 image='ami-ad3660c4')
         foo0.containers={
             'foo': Container(
@@ -510,7 +510,7 @@ bar:
         foo1 = Server(
                 name='foo-1',
                 provider='ec2',
-                size='m1.medium',
+                size='m3.medium',
                 image='ami-ad3660c4')
         foo1.containers={
             'foo': Container(

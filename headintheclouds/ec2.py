@@ -38,7 +38,7 @@ def cancel_spot_request(request_id):
     _ec2().cancel_spot_instance_requests([request_id])
 
 create_server_defaults = {
-    'size': 'm1.small',
+    'size': 'm3.small',
     'placement': 'us-east-1b',
     'bid': '',
     'image': 'ubuntu 12.04',
