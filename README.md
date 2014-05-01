@@ -5,6 +5,8 @@ headintheclouds is a bunch of [Fabric](http://fabfile.org/) tasks for managing c
 
 **Full documentation here: [headintheclouds.readthedocs.org](http://headintheclouds.readthedocs.org)**
 
+And here's a lightning talk I did at Docker Boston http://andreas.jansson.me.uk/hitc
+
 Install
 -------
 
