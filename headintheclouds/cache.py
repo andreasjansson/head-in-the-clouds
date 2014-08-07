@@ -1,6 +1,6 @@
 import os
 import errno
-import PyDbLite
+from headintheclouds.dependencies import PyDbLite
 import cPickle
 import time
 from functools import wraps

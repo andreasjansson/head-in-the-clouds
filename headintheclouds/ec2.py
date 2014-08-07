@@ -201,6 +201,8 @@ def create_spot_instances(count, size, placement, image, names, bid, security_gr
     request_ids = [r.id for r in requests]
 
     while True:
+        time.sleep(5)
+        
         requests = _ec2().get_all_spot_instance_requests(request_ids)
 
         statuses = [r.status.code for r in requests]
@@ -220,8 +222,6 @@ def create_spot_instances(count, size, placement, image, names, bid, security_gr
         if all([status == 'price-too-low']):
             abort('Price too low')
 
-        time.sleep(5)
-        
     active_requests = [r for r in requests if r.state == 'active']
     instance_ids = [r.instance_id for r in active_requests]
     for instance_id, name in zip(instance_ids, names):

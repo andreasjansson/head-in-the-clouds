@@ -109,7 +109,6 @@ def setup(version=None):
         if not fab.run('which docker').failed:
             return
 
-    sudo('apt-get update')
     sudo('apt-get -y install sshpass curl docker.io')
     sudo('ln -s /usr/bin/docker.io /usr/bin/docker')
 
