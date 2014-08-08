@@ -25,7 +25,7 @@ Global tasks
 ------------
 
 .. automodule:: headintheclouds.tasks
-   :members: nodes, create, terminate, reboot, rename, uncache, ssh, pricing
+   :members: nodes, create, terminate, reboot, rename, uncache, ssh, upload, pricing
 
 
 Provider-specific create flags
