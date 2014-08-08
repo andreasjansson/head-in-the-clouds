@@ -91,6 +91,17 @@ def ssh(cmd=''):
     local('ssh -o StrictHostKeyChecking=no -i "%s" %s@%s "%s"' % (
         env.key_filename, env.user, env.host, cmd))
 
+@cloudtask
+def upload(local_path, remote_path):
+    '''
+    Copy a local file to one or more servers via scp
+
+    Args:
+        local_path (str): Path on the local filesystem
+        remote_path (str): Path on the remote filesystem
+    '''
+    put(local_path, remote_path)
+
 @task
 @runs_once
 def pricing(sort='cost'):
