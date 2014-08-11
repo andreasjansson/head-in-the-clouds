@@ -27,8 +27,8 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
     queue = multiprocessing.Queue()
     processes = make_processes(servers, queue, things_to_delete)
 
-#    for container in absent_containers:
-#        container.delete()
+    for container in absent_containers:
+        container.delete()
 
     remaining = set(processes)
     while remaining:
@@ -53,6 +53,8 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
             dependency.resolve_dependents(dependency_graph, t, thing_index)
 
             # TODO: raise exception if no things can be resolved (instead of stalling (shouldn't be possible but could repro if sestting an env var to ${host.internal_ip} (instead of internal_ip) due to another bug))
+
+    return thing_index
 
 def make_processes(servers, queue, things_to_delete):
     processes = {}

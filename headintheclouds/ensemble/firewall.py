@@ -14,12 +14,12 @@ class Firewall(Thing):
 
     def create(self):
         with host_settings(self.host):
-            firewall.set_rules(self.get_open_list(), 'FORWARD')
+            firewall.set_rules(self.get_open_list(), ('FORWARD', 'INPUT'))
         return [self]
 
     def is_equivalent(self, other):
         with host_settings(self.host):
-            return firewall.rules_are_active(other.get_open_list(), 'FORWARD')
+            return firewall.rules_are_active(other.get_open_list(), ('FORWARD', 'INPUT'))
 
     def get_open_list(self):
         return [(None, r['port'], r['protocol'], r['addresses'])

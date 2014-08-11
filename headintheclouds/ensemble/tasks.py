@@ -30,12 +30,11 @@ def up(name):
     ]
     for filename in filenames_to_try:
         if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                config = yaml.load(f)
             break
     else:
         abort('Ensemble manifest not found: %s' % name)
-
-    with open(filename, 'r') as f:
-        config = yaml.load(f)
 
     uncache()
     try:

@@ -2,29 +2,36 @@ from fabric.api import * # pylint: disable=W0614,W0401
 
 CHAIN = 'HEAD_IN_THE_CLOUDS'
 
-def set_rules(open_list, from_chain='INPUT'):
-    rules = make_rules(open_list, from_chain)
+def set_rules(open_list, from_chains=('INPUT',)):
+    rules = make_rules(open_list, from_chains)
     rules = ['iptables ' + r for r in rules]
     cmd = ' && '.join(rules)
     sudo(cmd)
 
-def make_rules(open_list, from_chain='INPUT'):
+def make_rules(open_list, from_chains=('INPUT',)):
     c = [] # list of commands we will join with &&
 
     if has_chain():
         c.append(flush_chain)
     else:
         c.append(make_chain)
-        c.append(jump_to_chain(from_chain))
+
+    for from_chain in from_chains:
+        if not has_jump(from_chain):
+            c.append(jump_to_chain(from_chain))
 
     c.append(drop_null_packets)
     c.append(drop_syn_flood)
     c.append(drop_xmas_packets)
     c.append(accept_loopback)
+    c.append(accept_ping)
 
     # allow dns ports
     c += accept(53, None, 'tcp', None)
     c += accept(53, None, 'udp', None)
+
+    # allow ssh
+    c += accept(None, 22, 'tcp', None)
 
     for source_port, destination_port, protocol, addresses in open_list:
         c += accept(source_port, destination_port, protocol, addresses)
@@ -43,8 +50,8 @@ def get_rules():
 
     return rules
 
-def rules_are_active(open_list, from_chain='INPUT'):
-    new_rules = make_rules(open_list, from_chain)
+def rules_are_active(open_list, from_chains=('INPUT',)):
+    new_rules = make_rules(open_list, from_chains)
     new_rules = [r for r in new_rules if r != flush_chain]
     existing_rules = get_rules()
 
@@ -99,6 +106,11 @@ def jump_to_chain(from_chain='INPUT'):
 def delete_jump(from_chain='INPUT'):
     return '-D %s -j %s' % (from_chain, CHAIN)
 
+def has_jump(from_chain):
+    with settings(hide('everything'), warn_only=True):
+        return not sudo('iptables -C %s -j %s' % (from_chain, CHAIN)).failed
+    
+
 flush_chain        = '-F %s' % CHAIN
 make_chain         = '-N %s' % CHAIN
 drop_null_packets  = '-A %s -p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG NONE -j DROP' % CHAIN
@@ -106,6 +118,7 @@ drop_syn_flood     = '-A %s -p tcp -m tcp ! --tcp-flags FIN,SYN,RST,ACK SYN -m s
 drop_xmas_packets  = '-A %s -p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG FIN,SYN,RST,PSH,ACK,URG -j DROP' % CHAIN
 accept_loopback    = '-A %s -i lo -j RETURN' % CHAIN
 accept_established = '-A %s -m state --state RELATED,ESTABLISHED -j RETURN' % CHAIN
+accept_ping        = '-A %s -p icmp -m icmp --icmp-type 8 -j RETURN' % CHAIN
 drop_all           = '-A %s -j DROP' % CHAIN
 delete_chain       = '-X %s' % CHAIN
 

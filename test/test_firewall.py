@@ -5,6 +5,8 @@ from headintheclouds import firewall
 import utils
 import requests
 
+# TODO: test firewall with and without containers
+
 server_ip = None
 def setUpModule():
     global server_ip
@@ -41,8 +43,8 @@ class TestFirewall(unittest.TestCase):
                 (None, 10000, None, None),
             ])
 
-            sudobg('nc -l 10000')
-            sudobg('nc -l 10001')
+            utils.sudobg('nc -l 10000')
+            utils.sudobg('nc -l 10001')
 
         self.assertTrue(is_accessible(server_ip, 22))
         self.assertTrue(is_accessible(server_ip, 10000))
@@ -54,7 +56,7 @@ class TestFirewall(unittest.TestCase):
                 (None, 22, None, None),
             ])
 
-            sudobg('nc -l 80')
+            utils.sudobg('nc -l 80')
 
         self.assertFalse(is_accessible(server_ip, 80))
         self.assertTrue(is_accessible_from_inside('google.com', 80))
@@ -66,7 +68,7 @@ class TestFirewall(unittest.TestCase):
                 (None, None, None, [get_my_ip()]),
             ])
 
-            sudobg('nc -l 80')
+            utils.sudobg('nc -l 80')
 
         self.assertTrue(is_accessible(server_ip, 80))
 
@@ -77,7 +79,7 @@ class TestFirewall(unittest.TestCase):
                 (None, None, None, ['1.2.3.4']),
             ])
 
-            sudobg('nc -l 80')
+            utils.sudobg('nc -l 80')
 
         self.assertFalse(is_accessible(server_ip, 80))
 
@@ -99,25 +101,17 @@ class TestFirewall(unittest.TestCase):
 
         self.assertEquals(new_rules, existing_rules)
 
-def sudobg(cmd):
-    sockname = 'dtach.%s' % uuid.uuid4()
-    with settings(hide('everything'), warn_only=True):
-        if local('which dtach').failed:
-            sudo('apt-get install -y dtach')
-    
-    return sudo('dtach -n `mktemp -u /tmp/%s.XXXX` %s'  % (sockname, cmd))
-
 def iptables(cmd):
     sudo('iptables ' + cmd)
 
 def is_accessible(ip, port):
     with settings(hide('everything'), warn_only=True):
-        return not local('timeout 1 nc -z %s %d' % (ip, port)).failed
+        return not local('nc -w2 -z %s %d' % (ip, port)).failed
 
 def is_accessible_from_inside(ip, port):
     with settings(hide('everything'), warn_only=True):
         with utils.settings(server_ip):
-            return not run('timeout 1 nc -z %s %d' % (ip, port)).failed
+            return not run('nc -w2 -z %s %d' % (ip, port)).failed
 
 def get_my_ip():
     return requests.get('http://httpbin.org/ip').json()['origin']

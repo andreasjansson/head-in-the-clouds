@@ -89,7 +89,7 @@ def ssh(cmd=''):
         cmd (str) ='': Command to run on the server
     '''
     with settings(warn_only=True):
-        local('ssh -o StrictHostKeyChecking=no -i "%s" %s@%s "%s"' % (
+        local('ssh -A -o StrictHostKeyChecking=no -i "%s" %s@%s "%s"' % (
             env.key_filename, env.user, env.host, cmd))
 
 @cloudtask

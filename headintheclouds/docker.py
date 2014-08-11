@@ -104,13 +104,18 @@ def setup(version=None):
     if not fabric.contrib.files.exists('~/.ssh/id_rsa'):
         fab.run('ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa')
 
-    # check if it's already there
-    with settings(hide('everything'), warn_only=True):
-        if not fab.run('which docker').failed:
-            return
+    if docker_is_installed():
+        return
 
-    sudo('apt-get -y install sshpass curl docker.io')
-    sudo('ln -s /usr/bin/docker.io /usr/bin/docker')
+    if is_ubuntu():
+        sudo('apt-get update')
+        sudo('apt-get -y install sshpass curl docker.io')
+        sudo('ln -s /usr/bin/docker.io /usr/bin/docker')
+    else:
+        sudo('yum update -y')
+        sudo('yum install -y curl docker')
+        install_sshpass_from_source()
+        sudo('/etc/init.d/docker start')
 
 @cloudtask
 @parallel
@@ -264,7 +269,7 @@ def run_container(image, name=None, command=None, environment=None,
 
     parts = ['docker', 'run', '-d']
     if name:
-        parts += ['-name', name]
+        parts += ['--name', name]
     if volumes:
         for host_dir, container_dir in volumes.items():
             sudo('mkdir -p "%s"' % host_dir)
@@ -274,7 +279,7 @@ def run_container(image, name=None, command=None, environment=None,
             parts += ['-e', "%s='%s'" % (key, value)]
     if ports:
         for local_port, public_port, protocol in ports:
-            parts += ['-expose']
+            parts += ['--expose']
             if protocol == 'udp':
                 # import ipdb; ipdb.set_trace() TODO: debug why on earth udp would be first
                 parts += ['%s/udp' % local_port]
@@ -405,7 +410,9 @@ def get_image_id(container_name):
     return metadata[0]['Image']
 
 def get_container_ids():
-    setup() # defensive
+
+    if not docker_is_installed():
+        return []
 
     container_ids = []
     with hide('everything'):
@@ -414,6 +421,10 @@ def get_container_ids():
         id = line.split(' ', 1)[0]
         container_ids.append(id)
     return container_ids
+
+def docker_is_installed():
+    with settings(hide('everything'), warn_only=True):
+        return not fab.run('which docker').failed
 
 def get_public_ports(ip):
     with hide('everything'):
@@ -533,3 +544,17 @@ def registry_api(registry, endpoint):
 def get_docker_cfg():
     ret = fab.run('cat ~/.dockercfg 2>/dev/null || echo "{}"')
     return json.loads(ret)
+
+def is_ubuntu():
+    with settings(hide('everything'), warn_only=True):
+        return not fab.run('which apt-get').failed
+
+def install_sshpass_from_source():
+    run('mkdir tmpbuild')
+    with cd('tmpbuild'):
+        run('wget -O sshpass.tar.gz "http://downloads.sourceforge.net/project/sshpass/sshpass/1.05/sshpass-1.05.tar.gz?r=http%3A%2F%2Fsourceforge.net%2Fprojects%2Fsshpass%2F&ts=1407636443&use_mirror=hivelocity"')
+        run('tar xzvf sshpass.tar.gz')
+        with('cd sshpass-1.05'):
+            run('./configure')
+            run('make')
+            sudo('make install')
