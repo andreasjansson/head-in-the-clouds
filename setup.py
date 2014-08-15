@@ -18,5 +18,6 @@ setup(name='headintheclouds',
           'dop==0.1.6',
           'python-dateutil==2.1',
           'simplejson',
+          'envtpl==0.3.2',
       ],
   )

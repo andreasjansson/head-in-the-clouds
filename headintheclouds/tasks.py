@@ -1,6 +1,10 @@
+import os
+from glob import glob
 import time
+from StringIO import StringIO
 from functools import wraps
 from fabric.api import * # pylint: disable=W0614,W0401
+import envtpl
 
 from headintheclouds import provider_settings, provider_by_name, this_provider
 from headintheclouds import cache
@@ -98,8 +102,8 @@ def upload(local_path, remote_path):
     Copy a local file to one or more servers via scp
 
     Args:
-        local_path (str): Path on the local filesystem
-        remote_path (str): Path on the remote filesystem
+        * local_path (str): Path on the local filesystem
+        * remote_path (str): Path on the remote filesystem
     '''
     put(local_path, remote_path)
 
@@ -115,9 +119,54 @@ def pricing(sort='cost'):
         print
 
 @cloudtask
-#@parallel
+@parallel
 def ping():
     '''
     Ping server(s)
     '''
     local('ping -c1 %s' % env.host)
+
+@cloudtask
+@parallel
+def bootstrap(directory='bootstrap', use_envtpl=False):
+    '''
+    Bootstrap a server by uploading files and executing scripts.
+    If you have a directory called `bootstrap` (or whatever the
+    `directory` argument is), upload everything in bootstrap/files/*
+    to that location on the server. For example, you have have
+    bootstrap/files/etc/hosts, that will get uploaded to
+    /etc/hosts on the remote machine. Any files ending with *.sh
+    in bootstrap will be sourced alphabetically.
+
+    Args:
+        * directory: Bootstrap directory (default='bootstrap')
+        * use_envtpl: Whether to compile files suffixed with .tpl using envtpl
+    '''
+    for root, dirs, files in os.walk(directory):
+        parents = root.split('/')
+        if len(parents) > 1 and parents[1] == 'files':
+            for filename in files:
+                remote_root = '/' + '/'.join(parents[2:])
+                sudo('mkdir -p "%s"' % remote_root)
+
+                local_filename = '%s/%s' % (root, filename)
+                remote_filename = '%s/%s' % (remote_root, filename)
+
+                if use_envtpl and local_filename.endswith('.tpl'):
+                    remote_filename = remote_filename[:-4] # remove .tpl
+                    variables = os.environ
+                    with open(local_filename, 'r') as f:
+                        compiled = envtpl.render(f.read(), variables,
+                                                 die_on_missing_variable=True)
+                        put(StringIO(compiled), remote_filename, use_sudo=True)
+                else:
+                    put(local_filename, remote_filename, use_sudo=True)
+
+    scripts = glob('bootstrap/*.sh')
+    remote_scripts_directory = '/tmp/bootstrap_scripts'
+    sudo('mkdir -p %s' % remote_scripts_directory)
+    for path in sorted(scripts):
+        filename = os.path.basename(path)
+        remote_script = '%s/%s' % (remote_scripts_directory, filename)
+        put('bootstrap/%s' % filename, remote_script, use_sudo=True)
+        run('source %s' % remote_script)
