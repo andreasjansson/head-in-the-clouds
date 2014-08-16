@@ -6,7 +6,7 @@ import time
 import sys
 import re
 import requests
-import yaml
+import simplejson as json
 
 from fabric.api import * # pylint: disable=W0614,W0401
 import fabric.api as fab
@@ -254,7 +254,7 @@ def rename(name):
 def get_node_types():
     node_types = {}
 
-    r = requests.get('http://a0.awsstatic.com/pricing/1.0.19/ec2/linux-od.min.js')
+    r = requests.get('http://aws-assets-pricing-prod.s3.amazonaws.com/pricing/ec2/linux-od.js')
     if not r:
         return {}
 
@@ -281,9 +281,8 @@ def get_node_types():
     return node_types
 
 def parse_jsonp(content):
-    insides = content.split('callback(', 1)[1].rsplit(');')[0]
-    yamlable = insides.replace(':', ': ')
-    return yaml.load(yamlable)
+    insides = content.split('callback(', 1)[1].rsplit(')')[0]
+    return json.loads(insides)
 
 @cache.cached
 def all_nodes():
