@@ -28,8 +28,9 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
     processes = make_processes(servers, queue, things_to_change)
     n_completed = 0
 
-    for container in absent_containers:
-        container.delete()
+    # don't do this for now
+    # for container in absent_containers:
+    #     container.delete()
 
     remaining = set(processes)
     while remaining:
