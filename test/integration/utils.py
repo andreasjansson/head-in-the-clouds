@@ -44,7 +44,8 @@ def create_instance(conf):
                                        changes['changing_containers'], changes['absent_containers'])
     thing = thing_index[('SERVER', name)]
     ip = thing.get_ip()
-    return TestInstance(ip, provider, server.provider)
+    containers = thing.containers
+    return TestInstance(ip, provider, server.provider, containers)
 
 def check_changes(conf):
     servers = parse.parse_config(yaml.load(conf))
@@ -61,11 +62,12 @@ def make_changes(conf):
     
 class TestInstance(object):
 
-    def __init__(self, ip, provider, provider_name):
+    def __init__(self, ip, provider, provider_name, containers):
         self.ip = ip
         self.provider = provider
         self.provider_name = provider_name
         self.running = True
+        self.containers = containers
 
     def settings(self):
         return fab.settings(host_string=self.ip, host=self.ip, provider=self.provider_name, **self.provider.settings)
@@ -80,7 +82,7 @@ class TestInstance(object):
             with fab.settings(hide('everything'), warn_only=True):
                 return not local('nc -w1 -z %s %d' % (self.ip, port)).failed
 
-    def call_port(self, port, message):
+    def call_port(self, port):
         with self.settings():
             with fab.settings(hide('everything'), warn_only=True):
                 ret = local('nc -w3 %s %d' % (self.ip, port), capture=True)

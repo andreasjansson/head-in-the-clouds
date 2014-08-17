@@ -112,7 +112,7 @@ class Container(Thing):
                 and self.is_equivalent_command(other)
                 and self.is_equivalent_environment(other)
                 and self.are_equivalent_ports(other)
-                and set(self.fields['volumes']) == set(other.fields['volumes'])
+                and self.are_equivalent_volumes(other)
                 and self.is_equivalent_image(other))
 
     def is_equivalent_image(self, other):
@@ -128,7 +128,7 @@ class Container(Thing):
             sys.stdout.write('.')
             sys.stdout.flush()
  
-            return registry_image_id == running_image_id
+            return running_image_id.startswith(registry_image_id)
 
     def is_equivalent_command(self, other):
         # can't know for sure, so playing safe
@@ -144,6 +144,9 @@ class Container(Thing):
             if to is not None:
                 public_ports.append([fr, to, protocol])
         return sorted(public_ports) == sorted(other.fields['ports'])
+
+    def are_equivalent_volumes(self, other):
+        return set(self.fields['volumes']) == set(other.fields['volumes'])
 
     def is_equivalent_environment(self, other):
         ignored_keys = {'HOME', 'PATH', 'DEBIAN_FRONTEND'} # TODO: for now (or forever maybe?)

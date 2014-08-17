@@ -21,6 +21,7 @@ create_server_defaults = {
 DEPRECATED_IMAGE_IDS = {
     284203: 'Ubuntu 12.04',
     1505447: 'Ubuntu 12.04.3 x64',
+    3101045: 'Ubuntu 12.04.4 x64',
 }
 
 def create_servers(count, names=None, size=None, placement=None, image=None):

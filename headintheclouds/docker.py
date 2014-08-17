@@ -108,8 +108,12 @@ def setup(version=None):
         return
 
     if is_ubuntu():
-        sudo('apt-get update')
-        sudo('apt-get -y install sshpass curl docker.io')
+        for attempt in range(3):
+            sudo('apt-get update')
+            with settings(warn_only=True):
+                failed = sudo('apt-get -y install sshpass curl docker.io').failed
+                if not failed:
+                    break
         sudo('ln -s /usr/bin/docker.io /usr/bin/docker')
     else:
         sudo('yum update -y')

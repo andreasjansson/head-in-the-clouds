@@ -20,12 +20,13 @@ MULTI_THREADED = True
 def create_things(servers, dependency_graph, changing_servers, changing_containers, absent_containers):
     # TODO: handle errors
 
-    things_to_delete = {t.thing_name(): t for t in changing_servers | changing_containers}
+    things_to_change = {t.thing_name(): t for t in changing_servers | changing_containers}
 
     thing_index = thingindex.build_thing_index(servers)
 
     queue = multiprocessing.Queue()
-    processes = make_processes(servers, queue, things_to_delete)
+    processes = make_processes(servers, queue, things_to_change)
+    n_completed = 0
 
     for container in absent_containers:
         container.delete()
@@ -43,6 +44,8 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
                 raise exceptions.RuntimeException('No free nodes in the dependency graph!')
 
         completed_things, exception = queue.get()
+        n_completed += 1
+
         if exception:
             raise exception
 
@@ -53,6 +56,18 @@ def create_things(servers, dependency_graph, changing_servers, changing_containe
             dependency.resolve_dependents(dependency_graph, t, thing_index)
 
             # TODO: raise exception if no things can be resolved (instead of stalling (shouldn't be possible but could repro if sestting an env var to ${host.internal_ip} (instead of internal_ip) due to another bug))
+
+    while n_completed < len(processes):
+        completed_things, exception = queue.get()
+        n_completed += 1
+
+        if exception:
+            raise exception
+
+        for t in completed_things:
+            thing_index[t.thing_name()] = t
+            thingindex.refresh_thing_index(thing_index)
+            dependency.resolve_dependents(dependency_graph, t, thing_index)
 
     return thing_index
 
