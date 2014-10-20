@@ -150,7 +150,7 @@ def kill(container, rm=True):
     '''
     container = get_container(container)
     if not container:
-        abort('No such container: %s' % container)
+        raise Exception('No such container: %s' % container)
     unbind_all(container['ip']) # legacy, only here for backwards compatibility
 
     sudo('docker kill %s' % container['name'])
@@ -264,7 +264,7 @@ def run_container(image, name=None, command=None, environment=None,
                 protocol_suffix = '/udp'
             else:
                 protocol_suffix = ''
-            parts += ['-p', '%s:%s%s' % (port, public_port, protocol_suffix)]
+            parts += ['-p', '%s:%s%s' % (public_port, port, protocol_suffix)]
 
     if max_memory:
         parts += ['-m', max_memory]

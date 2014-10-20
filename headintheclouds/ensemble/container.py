@@ -116,10 +116,13 @@ class Container(Thing):
 
     def delete(self):
         with remote.host_settings(self.host):
-            docker.kill(self.name)
+            try:
+                docker.kill(self.name)
+            except Exception as e:
+                print 'Failed to kill container: %s (host %s)' % (e, self.host)
 
     def is_equivalent(self, other):
-        return (
+        is_equivalent = (
             self.host.is_equivalent(other.host)
             and self.name == other.name
             and self.is_equivalent_command(other)
@@ -130,6 +133,7 @@ class Container(Thing):
             and self.is_equivalent_hostname(other)
             and self.has_equivalent_privilege(other)
         )
+        return is_equivalent
 
     def is_equivalent_image(self, other):
         if self.fields['image'] != other.fields['image']:
