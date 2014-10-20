@@ -75,9 +75,10 @@ def process_dependencies(servers, existing_servers):
             if exception:
                 raise exception
 
+            new_index[new_thing.thing_name()] = new_thing
+            thingindex.refresh_thing_index(new_index)
+
             if not is_new and not is_changing:
-                new_index[new_thing.thing_name()] = new_thing
-                thingindex.refresh_thing_index(new_index)
                 existing_index[existing_thing.thing_name()] = existing_thing
                 thingindex.refresh_thing_index(existing_index)
 
@@ -223,6 +224,7 @@ class DependencyProcess(multiprocessing.Process):
                 if self.existing_thing.is_equivalent(self.new_thing):
                     self.new_thing.update(self.existing_thing)
                 else:
+                    self.new_thing.update_for_change(self.existing_thing)
                     is_changing = True
             else:
                 is_new = True

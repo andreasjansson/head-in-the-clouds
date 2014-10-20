@@ -39,14 +39,14 @@ class Server(Thing):
     def post_create(self):
         if self.containers:
             with remote.host_settings(self):
-                docker.setup()
+                docker.setup(self.fields.get('docker_mount', None))
 
     def delete(self):
         with remote.host_settings(self):
             self.server_provider().terminate()
 
     def validate(self):
-        valid_options = self.server_provider().create_server_defaults.keys() + ['name']
+        valid_options = self.server_provider().create_server_defaults.keys() + ['name', 'docker_mount']
         given_options = {k for k, v in self.fields.items()
                          if v is not None}
         invalid_options = given_options - set(valid_options)
@@ -77,6 +77,9 @@ class Server(Thing):
 
     def server_provider(self):
         return headintheclouds.provider_by_name(self.provider)
+
+    def update_for_change(self, other):
+        self.fields['ip'] = other.fields['ip']
 
     def thing_name(self):
         return ('SERVER', self.name)

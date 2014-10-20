@@ -84,6 +84,7 @@ def cached(func):
 
         if uncache:
             delete(cache_key)
+            return None
 
         if recache:
             ret = func(*args, **kwargs)

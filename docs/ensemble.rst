@@ -108,6 +108,12 @@ Configuration YAML schema
        # Ports can also be wildcarded, like this
        "*/*": $internal_ips
 
+     # Optional Docker configuration, if defined, will mount the
+     # device as /var/lib/docker. Useful on EC2 where /dev/xvdb
+     # is the default EBS mount. Cannot be changed once the server
+     # has been created.
+     docker_mount: DEVICE_TO_MOUNT
+
    templates:
      TEMPLATE_NAME:
        # anything goes here

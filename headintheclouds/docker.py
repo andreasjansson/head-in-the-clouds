@@ -48,54 +48,17 @@ def ps():
 
 @cloudtask
 @parallel
-def bind(container, *ports):
-    '''
-    Bind one or more ports to the container.
-
-    Args:
-        * container: Container name or ID
-        * \*ports: List of items in the format CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]
-
-    Example:
-        fab docker.bind:mycontainer,80,"3306:3307","12345/udp"
-    '''
-
-    ip = get_ip(container)
-    for port_spec in ports:
-        port, public_port, protocol = parse_port_spec(port_spec)
-        bind_container(ip, port, public_port, protocol)
-
-@cloudtask
-@parallel
-def unbind(container, *ports):
-    '''
-    Unbind one or more ports from the container.
-
-    Args:
-        * container: Container name or ID
-        * \*port: List of items in the format CONTAINER_PORT[:EXPOSED_PORT][/PROTOCOL]
-
-    Example:
-        fab docker.unbind:mycontainer,80,"3306:3307","12345/udp"
-    '''
-
-    ip = get_ip(container)
-    for port_spec in ports:
-        port, public_port, protocol = parse_port_spec(port_spec)
-        unbind_container(ip, port, public_port, protocol)
-
-@cloudtask
-@parallel
-def setup(version=None):
+def setup(docker_mount=None, force=False):
     '''
     Prepare a vanilla server by installing docker, curl, and sshpass. If a file called ``dot_dockercfg``
     exists in the current working directory, it is uploaded as ``~/.dockercfg``.
 
     Args:
-        * version=None: Docker version. If undefined, will install 0.7.6. You can also specify this in env.docker_version
+        * docker_mount=None: Partition that will be mounted as /var/lib/docker
     '''
-    if version is None:
-        version = getattr(env, 'docker_version', '0.7.6')
+
+    if not is_ubuntu():
+        raise Exception('Head In The Clouds Docker is only supported on Ubuntu')
 
     # a bit hacky
     if os.path.exists('dot_dockercfg') and not fabric.contrib.files.exists('~/.dockercfg'):
@@ -104,22 +67,31 @@ def setup(version=None):
     if not fabric.contrib.files.exists('~/.ssh/id_rsa'):
         fab.run('ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa')
 
-    if docker_is_installed():
+    if docker_is_installed() and not force:
         return
 
-    if is_ubuntu():
-        for attempt in range(3):
+    for attempt in range(3):
+        sudo('wget -qO- https://get.docker.io/gpg | apt-key add -')
+        sudo('sh -c "echo deb http://get.docker.io/ubuntu docker main > /etc/apt/sources.list.d/docker.list"')
+        with settings(warn_only=True):
             sudo('apt-get update')
-            with settings(warn_only=True):
-                failed = sudo('apt-get -y install sshpass curl docker.io').failed
-                if not failed:
-                    break
-        sudo('ln -s /usr/bin/docker.io /usr/bin/docker')
-    else:
-        sudo('yum update -y')
-        sudo('yum install -y curl docker')
-        install_sshpass_from_source()
-        sudo('/etc/init.d/docker start')
+            failed = sudo('apt-get install -y lxc-docker sshpass curl').failed
+            if not failed:
+                break
+
+    if docker_mount:
+        create_docker_mount(docker_mount)
+
+@cloudtask
+@parallel
+def create_docker_mount(device):
+    sudo('service docker stop')
+    sudo('rm -rf /var/lib/docker')
+    sudo('mkdir /var/lib/docker')
+    sudo('umount %s' % device)
+    sudo('mount %s /var/lib/docker' % device)
+    sudo('service docker start')
+    
 
 @cloudtask
 @parallel
@@ -179,7 +151,7 @@ def kill(container, rm=True):
     container = get_container(container)
     if not container:
         abort('No such container: %s' % container)
-    unbind_all(container['ip'])
+    unbind_all(container['ip']) # legacy, only here for backwards compatibility
 
     sudo('docker kill %s' % container['name'])
     if rm:
@@ -260,7 +232,8 @@ def tunnel(container, local_port, remote_port=None, gateway_port=None):
     local(command)
 
 def run_container(image, name=None, command=None, environment=None,
-                  ports=None, volumes=None, max_memory=None):
+                  ports=None, volumes=None, max_memory=None, hostname=None,
+                  privileged=False):
 
     setup()
 
@@ -272,25 +245,36 @@ def run_container(image, name=None, command=None, environment=None,
         environment = {k: v for k, v in environment}
 
     parts = ['docker', 'run', '-d']
+
     if name:
         parts += ['--name', name]
+
     if volumes:
         for host_dir, container_dir in volumes.items():
             sudo('mkdir -p "%s"' % host_dir)
             parts += ['-v', '"%s":"%s"' % (host_dir, container_dir)]
+
     if environment:
         for key, value in environment.items():
             parts += ['-e', "%s='%s'" % (key, value)]
+
     if ports:
-        for local_port, public_port, protocol in ports:
-            parts += ['--expose']
+        for port, public_port, protocol in ports:
             if protocol == 'udp':
-                # import ipdb; ipdb.set_trace() TODO: debug why on earth udp would be first
-                parts += ['%s/udp' % local_port]
+                protocol_suffix = '/udp'
             else:
-                parts += ['%s' % local_port]
+                protocol_suffix = ''
+            parts += ['-p', '%s:%s%s' % (port, public_port, protocol_suffix)]
+
     if max_memory:
         parts += ['-m', max_memory]
+
+    if hostname:
+        parts += ['-h', '%s' % hostname]
+
+    if privileged:
+        parts += ['--privileged']
+
     parts += [image]
     if command:
         parts += ['%s' % command]
@@ -299,12 +283,6 @@ def run_container(image, name=None, command=None, environment=None,
     sudo(command_line)
 
     container = get_container(name)
-    if ports:
-        ip = container['ip']
-        if not ip:
-            raise Exception('Failed to get container IP')
-        for port, public_port, protocol in ports:
-            bind_container(ip, port, public_port, protocol)
 
     return container
 
@@ -406,7 +384,10 @@ def pull_image(name):
     if result.failed:
         return None
     result = json.loads(result)
-    return result[0]['id']
+    if 'id' in result[0]:
+        return result[0]['id']
+    else:
+        return result[0]['Id']
 
 #hack
 def get_image_id(container_name):
@@ -436,22 +417,10 @@ def get_public_ports(ip):
     public_ports = []
     for protocol in ('tcp', 'udp'):
         for rule in rules.splitlines():
-            match = re.search('^-A DOCKER -p %s -m %s --dport ([0-9]+) -j DNAT --to-destination %s:([0-9]+)' % (protocol, protocol, ip), rule)
+            match = re.search('^-A DOCKER (?:! -i docker0 )?-p %s -m %s --dport ([0-9]+) -j DNAT --to-destination %s:([0-9]+)' % (protocol, protocol, ip), rule)
             if match:
                 public_ports.append((match.group(2), match.group(1), protocol))
     return public_ports
-
-def bind_container(ip, port, public_port, protocol='tcp'):
-    unbind_port(public_port, protocol)
-    sudo('iptables -t nat -A DOCKER -p %s --dport %s -j DNAT --to-destination %s:%s' % (protocol, public_port, ip, port))
-
-def unbind_container(ip, port, public_port, protocol='tcp'):
-    with hide('everything'):
-        rules = sudo('iptables -t nat -S')
-    for rule in rules.splitlines():
-        if re.search('^-A DOCKER -p %s -m %s --dport %s -j DNAT --to-destination %s:%s' % (protocol, protocol, public_port, ip, port), rule):
-            undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
-            sudo('iptables -t nat %s' % undo_rule)
 
 def parse_port_spec(port_spec):
     regex = r'^(?P<from>[^/:]+)(:(?P<to>[^/]+))?(/(?P<protocol>.+))?$'
@@ -474,19 +443,6 @@ def parse_port_spec(port_spec):
         pass
 
     return fr, to, protocol
-
-def unbind_all(ip):
-    ports = get_public_ports(ip)
-    for local_port, public_port, protocol in ports:
-        unbind_container(ip, local_port, public_port, protocol)
-
-def unbind_port(public_port, protocol='tcp'):
-    with hide('everything'):
-        rules = sudo('iptables -t nat -S')
-    for rule in rules.splitlines():
-        if re.search('^-A DOCKER -p %s -m %s --dport %s -j DNAT --to-destination (?P<ip>.+):(?P<local_port>[0-9]+)$' % (protocol, protocol, public_port), rule):
-            undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
-            sudo('iptables -t nat %s' % undo_rule)
 
 def pretty_container(container):
     container = container.copy()
@@ -562,3 +518,16 @@ def install_sshpass_from_source():
             run('./configure')
             run('make')
             sudo('make install')
+
+def unbind_all(ip):
+    ports = get_public_ports(ip)
+    for local_port, public_port, protocol in ports:
+        unbind_container(ip, local_port, public_port, protocol)
+
+def unbind_container(ip, port, public_port, protocol='tcp'):
+    with hide('everything'):
+        rules = sudo('iptables -t nat -S')
+    for rule in rules.splitlines():
+        if re.search('^-A DOCKER -p %s -m %s --dport %s -j DNAT --to-destination %s:%s' % (protocol, protocol, public_port, ip, port), rule):
+            undo_rule = re.sub('-A DOCKER', '-D DOCKER', rule)
+            sudo('iptables -t nat %s' % undo_rule)

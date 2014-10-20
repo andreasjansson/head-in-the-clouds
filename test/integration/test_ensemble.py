@@ -204,3 +204,24 @@ class TestEnsemble(unittest.TestCase):
         test1_ip = self.instance.containers['test1'].fields['ip']
         self.assertEquals(self.instance.call_port(8080), test1_ip)
         self.assertEquals(check_changes(config), {})
+
+    def test_modify_server(self):
+        config = '''
+%(name)s:
+  provider: ec2
+  image: ami-a427efcc
+  size: m1.small
+        ''' % {'name': self.name}
+
+        self.instance = create_instance(config)
+        self.assertEquals(check_changes(config), {})
+
+        config = '''
+%(name)s:
+  provider: ec2
+  image: ami-a427efcc
+  size: m1.medium
+        ''' % {'name': self.name}
+        self.assertEquals(list(check_changes(config)['changing_servers'])[0].name, self.name)
+        make_changes(config)
+        self.assertEquals(check_changes(config), {})

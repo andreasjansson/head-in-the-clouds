@@ -289,15 +289,17 @@ def all_nodes():
     reservations = _ec2().get_all_instances()
     nodes = [instance_to_node(x)
              for r in reservations for x in r.instances
-             if 'Name' in x.tags
-             and x.tags['Name'].startswith(env.name_prefix)
+             if (env.name_prefix == '' or (
+                     'Name' in x.tags
+                     and x.tags['Name'].startswith(env.name_prefix)
+             ))
              and x.state not in ('terminated', 'shutting-down')]
     return nodes
 
 def instance_to_node(instance):
     node = {}
     node['id'] = instance.id
-    node['name'] = re.sub('^%s' % env.name_prefix, '', instance.tags['Name'])
+    node['name'] = re.sub('^%s' % env.name_prefix, '', instance.tags.get('Name', ''))
     node['size'] = instance.instance_type
     node['security_group'] = instance.groups[0].name
     node['placement'] = instance.placement

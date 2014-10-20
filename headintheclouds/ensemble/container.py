@@ -25,6 +25,14 @@ def parse_float(value):
     except ValueError:
         raise ConfigException('Value is not a float: "%s"' % value)
 
+def parse_bool(value):
+    str_val = str(value).lower()
+    if str_val in ('t', 'true', '1'):
+        return True
+    elif str_val in ('f', 'false', '0'):
+        return False
+    raise ConfigException('Value is not a boolean: "%s"' % value)
+
 def parse_dict(value):
     if not isinstance(value, dict):
         raise ConfigException('Value is not a dictionary: "%s"' % value)
@@ -62,6 +70,8 @@ class Container(Thing):
         'volumes': parse_dict,
         'ip': parse_string,
         'max_memory': parse_size,
+        'hostname': parse_string,
+        'privileged': parse_bool,
     }
     
     def __init__(self, name, host, **kwargs):
@@ -98,6 +108,8 @@ class Container(Thing):
                 ports=self.fields['ports'],
                 volumes=self.fields['volumes'],
                 max_memory=self.fields['max_memory'],
+                hostname=self.fields['hostname'],
+                privileged=self.fields['privileged'],
             )
             self.update(container)
         return [self]
@@ -107,13 +119,17 @@ class Container(Thing):
             docker.kill(self.name)
 
     def is_equivalent(self, other):
-        return (self.host.is_equivalent(other.host)
-                and self.name == other.name
-                and self.is_equivalent_command(other)
-                and self.is_equivalent_environment(other)
-                and self.are_equivalent_ports(other)
-                and self.are_equivalent_volumes(other)
-                and self.is_equivalent_image(other))
+        return (
+            self.host.is_equivalent(other.host)
+            and self.name == other.name
+            and self.is_equivalent_command(other)
+            and self.is_equivalent_environment(other)
+            and self.are_equivalent_ports(other)
+            and self.are_equivalent_volumes(other)
+            and self.is_equivalent_image(other)
+            and self.is_equivalent_hostname(other)
+            and self.has_equivalent_privilege(other)
+        )
 
     def is_equivalent_image(self, other):
         if self.fields['image'] != other.fields['image']:
@@ -149,7 +165,11 @@ class Container(Thing):
         return set(self.fields['volumes']) == set(other.fields['volumes'])
 
     def is_equivalent_environment(self, other):
-        ignored_keys = {'HOME', 'PATH', 'DEBIAN_FRONTEND'} # TODO: for now (or forever maybe?)
+        # TODO: this is really janky...
+        # the problem is that you can't tell the difference between an environment
+        # variable defined in the Dockerfile and one set by -e
+        ignored_keys = {'HOME', 'PATH', 'DEBIAN_FRONTEND', 'JAVA_HOME'}
+
         this_dict = {k: v for k, v in self.fields['environment'].items()}
         other_dict = {k: v for k, v in other.fields['environment'].items()}
         for k in set(this_dict) | set(other_dict):
@@ -159,6 +179,14 @@ class Container(Thing):
             # compare apples with 'apples'
             if str(this_dict.get(k, None)) != str(other_dict.get(k, None)):
                 return False
+        return True
+
+    def is_equivalent_hostname(self, other):
+        # TODO: check this
+        return True
+
+    def has_equivalent_privilege(self, other):
+        # TODO: check this
         return True
 
     def thing_name(self):

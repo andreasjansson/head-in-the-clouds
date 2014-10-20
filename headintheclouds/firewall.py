@@ -25,6 +25,7 @@ def make_rules(open_list, from_chains=('INPUT',)):
     c.append(drop_xmas_packets)
     c.append(accept_loopback)
     c.append(accept_ping)
+    c.append(accept_docker)
 
     # allow dns ports
     c += accept(53, None, 'tcp', None)
@@ -119,6 +120,7 @@ drop_xmas_packets  = '-A %s -p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG FI
 accept_loopback    = '-A %s -i lo -j RETURN' % CHAIN
 accept_established = '-A %s -m state --state RELATED,ESTABLISHED -j RETURN' % CHAIN
 accept_ping        = '-A %s -p icmp -m icmp --icmp-type 8 -j RETURN' % CHAIN
+accept_docker      = '-A %s -i docker0 -j RETURN' % CHAIN
 drop_all           = '-A %s -j DROP' % CHAIN
 delete_chain       = '-X %s' % CHAIN
 

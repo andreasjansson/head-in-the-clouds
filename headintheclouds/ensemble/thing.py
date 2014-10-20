@@ -11,6 +11,9 @@ class Thing(object):
         for prop, value in fields:
             self.fields[prop] = value
 
+    def update_for_change(self, other):
+        pass
+
     def pre_create(self):
         pass
 

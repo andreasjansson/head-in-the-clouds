@@ -1,5 +1,6 @@
 import sys
 import multiprocessing
+import traceback
 import fabric
 from fabric.colors import yellow, red
 import fabric.api as fab
@@ -123,7 +124,8 @@ class UpProcess(multiprocessing.Process):
 
             created_things = self.thing.create()
         except Exception, e:
-            exception = e
+            tb = traceback.format_exc()
+            exception = Exception(tb)
 
         self.queue.put((created_things, exception))
 

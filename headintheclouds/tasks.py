@@ -127,7 +127,7 @@ def ping():
     local('ping -c1 %s' % env.host)
 
 @cloudtask
-@parallel
+#@parallel
 def bootstrap(directory='bootstrap', use_envtpl=False):
     '''
     Bootstrap a server by uploading files and executing scripts.
@@ -142,12 +142,23 @@ def bootstrap(directory='bootstrap', use_envtpl=False):
         * directory: Bootstrap directory (default='bootstrap')
         * use_envtpl: Whether to compile files suffixed with .tpl using envtpl
     '''
-    for root, dirs, files in os.walk(directory):
+    do_bootstrap(directory, use_envtpl)
+
+def do_bootstrap(directory, use_envtpl):
+    for root, dirs, files in os.walk(directory, followlinks=True):
         parents = root.split('/')
         if len(parents) > 1 and parents[1] == 'files':
             for filename in files:
                 remote_root = '/' + '/'.join(parents[2:])
-                sudo('mkdir -p "%s"' % remote_root)
+                
+                use_sudo = not (len(parents) >= 4
+                                and parents[2] == 'home'
+                                and parents[3] == 'ubuntu')
+
+                if use_sudo:
+                    sudo('mkdir -p "%s"' % remote_root)
+                else:
+                    run('mkdir -p "%s"' % remote_root)
 
                 local_filename = '%s/%s' % (root, filename)
                 remote_filename = '%s/%s' % (remote_root, filename)
@@ -158,15 +169,15 @@ def bootstrap(directory='bootstrap', use_envtpl=False):
                     with open(local_filename, 'r') as f:
                         compiled = envtpl.render(f.read(), variables,
                                                  die_on_missing_variable=True)
-                        put(StringIO(compiled), remote_filename, use_sudo=True)
+                        put(StringIO(compiled), remote_filename, use_sudo=use_sudo)
                 else:
-                    put(local_filename, remote_filename, use_sudo=True)
+                    put(local_filename, remote_filename, use_sudo=use_sudo)
 
-    scripts = glob('bootstrap/*.sh')
+    scripts = glob('%s/*.sh' % directory)
     remote_scripts_directory = '/tmp/bootstrap_scripts'
     sudo('mkdir -p %s' % remote_scripts_directory)
     for path in sorted(scripts):
         filename = os.path.basename(path)
         remote_script = '%s/%s' % (remote_scripts_directory, filename)
-        put('bootstrap/%s' % filename, remote_script, use_sudo=True)
+        put('%s/%s' % (directory, filename), remote_script, use_sudo=True)
         run('source %s' % remote_script)
