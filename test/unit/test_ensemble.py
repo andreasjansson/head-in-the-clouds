@@ -214,7 +214,7 @@ class TestProcessDependencies(unittest.TestCase):
         self.assertTrue(changes_equals(changes, expected_changes))
 
     def test_changing_servers(self):
-        foo = Server(name='foo', provider='ec2', size='m1.small')
+        foo = Server(name='foo', provider='ec2', size='m1.small', ip=None)
         foo.containers = {
             'baz': Container(
                 name='baz',

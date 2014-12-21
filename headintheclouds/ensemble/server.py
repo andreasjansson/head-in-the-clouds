@@ -65,9 +65,23 @@ class Server(Thing):
             self.fields[param] = value
 
     def is_equivalent(self, other):
-        return (self.provider == other.provider
-                and self.server_provider().equivalent_create_options(
-                    self.get_create_options(), other.get_create_options()))
+        checks = {
+            'provider': self.is_equivalent_provider,
+            'options': self.has_equivalent_options,
+        }
+
+        return self.check_equivalent(checks, other)
+
+    def is_equivalent_provider(self, other):
+        is_equivalent = self.provider == other.provider
+        log_string = '' if is_equivalent else '%s != %s' % (self.provider, other.provider)
+        return is_equivalent, log_string
+
+    def has_equivalent_options(self, other):
+        is_equivalent = self.server_provider().equivalent_create_options(
+            self.get_create_options(), other.get_create_options())
+        log_string = '' if is_equivalent else '%s != %s' % (self.get_create_options(), other.get_create_options())
+        return is_equivalent, log_string
 
     def get_create_options(self):
         create_options = self.server_provider().create_server_defaults.copy()

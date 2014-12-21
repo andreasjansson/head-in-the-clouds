@@ -1,3 +1,4 @@
+import traceback
 import re
 import collections
 import simplejson as json
@@ -71,9 +72,9 @@ def process_dependencies(servers, existing_servers):
             time.sleep(random.random() * .5)
 
         for _ in next_things:
-            new_thing, existing_thing, is_changing, is_new, exception = queue.get()
+            new_thing, existing_thing, is_changing, is_new, exception, tb = queue.get()
             if exception:
-                raise exception
+                raise Exception(tb)
 
             new_index[new_thing.thing_name()] = new_thing
             thingindex.refresh_thing_index(new_index)
@@ -218,7 +219,7 @@ class DependencyProcess(multiprocessing.Process):
             fabric.network.disconnect_all()
 
         is_changing = is_new = False
-        exception = None
+        exception = tb = None
         try:
             if self.existing_thing:
                 if self.existing_thing.is_equivalent(self.new_thing):
@@ -230,8 +231,9 @@ class DependencyProcess(multiprocessing.Process):
                 is_new = True
         except Exception, e:
             exception = e
+            tb = traceback.format_exc()
 
-        self.queue.put((self.new_thing, self.existing_thing, is_changing, is_new, exception))
+        self.queue.put((self.new_thing, self.existing_thing, is_changing, is_new, exception, tb))
 
 def resolve_existing(thing_name, new_index, existing_index, dependency_graph):
     changing_things = set()

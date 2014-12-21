@@ -1,3 +1,6 @@
+import fabric.api as fab
+from fabric import colors
+
 class Thing(object):
 
     def __init__(self):
@@ -16,6 +19,25 @@ class Thing(object):
 
     def pre_create(self):
         pass
+
+    def check_equivalent(self, checks, other):
+        debug_enabled = fab.env.show == 'debug'
+
+        all_are_equivalent = True
+        log_strings = []
+        for name, check in checks.items():
+            is_equivalent, log_string = check(other)
+            if not is_equivalent:
+                log_strings.append('%s: %s' % (name, log_string))
+            all_are_equivalent = all_are_equivalent and is_equivalent
+            if not debug_enabled and not all_are_equivalent:
+                return False
+
+        if debug_enabled:
+            if not all_are_equivalent:
+                print colors.red('%s is not equivalent (%s)' % (other, ', '.join(log_strings)))
+
+        return all_are_equivalent
 
 class FieldList(dict):
 

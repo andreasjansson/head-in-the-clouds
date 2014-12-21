@@ -28,6 +28,7 @@ def up(name):
         '%s.yml' % name,
         '%s.yaml' % name,
     ]
+
     for filename in filenames_to_try:
         if os.path.exists(filename):
             with open(filename, 'r') as f:

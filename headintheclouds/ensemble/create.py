@@ -165,6 +165,8 @@ def confirm_changes(changes):
 #        for container in changes['absent_containers']:
 #           print '%s (%s)' % (container.name, container.host.name)
 
+    fab.abort('killing prematurely')
+
     if set(changes) - {'absent_containers'}:
         if not confirm('Do you wish to continue?'):
             fab.abort('Aborted')
