@@ -12,7 +12,7 @@ from headintheclouds.ensemble import exceptions
 
 @runs_once
 @task
-def up(name):
+def up(name, debug=False):
     '''
     Create servers and containers as required to meet the configuration
     specified in _name_.
@@ -23,6 +23,10 @@ def up(name):
     Example:
         fab ensemble.up:wordpress
     '''
+
+    if debug:
+        env.ensemble_debug = True
+
     filenames_to_try = [
         name,
         '%s.yml' % name,

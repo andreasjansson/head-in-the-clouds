@@ -191,7 +191,18 @@ class Container(Thing):
         return is_equivalent, log_string
 
     def are_equivalent_volumes(self, other):
-        diff_string = set_difference_string(other.fields['volumes'], self.fields['volumes'])
+        if other.fields['volumes']:
+            new_volumes = {k.rstrip('/'): v.rstrip('/')
+                           for k, v in other.fields['volumes'].items()}
+        else:
+            new_volumes = {}
+        if self.fields['volumes']:
+            old_volumes = {k.rstrip('/'): v.rstrip('/')
+                           for k, v in self.fields['volumes'].items()
+                           if not k.startswith('/var/lib/docker/vfs/dir/')} # hack
+        else:
+            old_volumes = {}
+        diff_string = set_difference_string(new_volumes, old_volumes)
         is_equivalent = not diff_string
         log_string = '' if is_equivalent else diff_string
         return is_equivalent, log_string
@@ -235,11 +246,16 @@ class Container(Thing):
 
 
 def set_difference_string(new, old):
+    if isinstance(new, dict):
+        new = set('%s: %s' % (str(k), str(v)) for k, v in new.items())
+    if isinstance(old, dict):
+        old = set('%s: %s' % (str(k), str(v)) for k, v in old.items())
+
     new_strings = set(str(x) for x in new)
     old_strings = set(str(x) for x in old)
-    s = []
     in_new = new_strings - old_strings
     in_old = old_strings - new_strings
+    s = []
     if in_new:
         s.append('in new: %s' % in_new)
     if in_old:

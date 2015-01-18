@@ -21,7 +21,7 @@ class Thing(object):
         pass
 
     def check_equivalent(self, checks, other):
-        debug_enabled = fab.env.show == 'debug'
+        debug_enabled = hasattr(fab.env, 'ensemble_debug') and fab.env.ensemble_debug
 
         all_are_equivalent = True
         log_strings = []

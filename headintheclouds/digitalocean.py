@@ -22,6 +22,7 @@ DEPRECATED_IMAGE_IDS = {
     284203: 'Ubuntu 12.04',
     1505447: 'Ubuntu 12.04.3 x64',
     3101045: 'Ubuntu 12.04.4 x64',
+    6918990: '14.04 x64'
 }
 
 def create_servers(count, names=None, size=None, placement=None, image=None):
@@ -149,7 +150,7 @@ def droplet_to_node(droplet):
     try:
         node['image'] = flip_dict(_get_images())[droplet.image_id]
     except Exception:
-        node['image'] = DEPRECATED_IMAGE_IDS.get(droplet.image_id, 'unknown')
+        node['image'] = DEPRECATED_IMAGE_IDS.get(droplet.image_id, 'unknown %s' % droplet.image_id)
     node['ip'] = droplet.ip_address
     node['internal_address'] = droplet.ip_address
     node['internal_ip'] = droplet.ip_address
