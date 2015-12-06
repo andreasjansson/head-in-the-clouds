@@ -54,13 +54,20 @@ def parse_server(server_name, spec, templates):
         count = 1
 
     if 'provider' not in spec:
-        spec['provider'] = 'unmanaged'
+        if server_name == 'boot2docker':
+            spec['provider'] = 'boot2docker'
+        else:
+            spec['provider'] = 'unmanaged'
 
     for i in range(count):
         if spec['provider'] == 'unmanaged':
             name = spec['ip'] = server_name
             if 'ip' in spec and spec['ip'] != name:
                 raise ConfigException('No need to specify ip for unmanaged servers, but if you do, the ip must match the name of the server')
+        elif server_name == 'boot2docker':
+            from headintheclouds import boot2docker
+            name = server_name
+            spec['ip'] = boot2docker.get_boot2docker_ip()
         else:
             if i == 0:
                 name = server_name

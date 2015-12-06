@@ -57,7 +57,7 @@ def setup(docker_mount=None, force=False):
         * docker_mount=None: Partition that will be mounted as /var/lib/docker
     '''
 
-    if not is_ubuntu():
+    if not is_ubuntu() and not is_boot2docker():
         raise Exception('Head In The Clouds Docker is only supported on Ubuntu')
 
     # a bit hacky
@@ -508,6 +508,11 @@ def get_docker_cfg():
 def is_ubuntu():
     with settings(hide('everything'), warn_only=True):
         return not fab.run('which apt-get').failed
+
+def is_boot2docker():
+    with hide('everything'):
+        hostname = fab.run('hostname')
+        return hostname.startswith('boot2docker')
 
 def install_sshpass_from_source():
     run('mkdir tmpbuild')
