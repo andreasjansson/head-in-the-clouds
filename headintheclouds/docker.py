@@ -9,8 +9,6 @@ import fabric.context_managers
 from fabric.api import * # pylint: disable=W0614,W0401
 from headintheclouds.tasks import cloudtask
 from headintheclouds.util import print_table
-import collections
-from StringIO import StringIO
 
 @cloudtask
 def ssh(container, cmd='', user='root', password='root'):
@@ -256,7 +254,7 @@ def run_container(image, name=None, command=None, environment=None,
 
     if environment:
         for key, value in environment.items():
-            parts += ['-e', "%s='%s'" % (key, value)]
+            parts += ['-e', "%s='%s'" % (key, json.dumps(value))]
 
     if ports:
         for port, public_port, protocol in ports:
