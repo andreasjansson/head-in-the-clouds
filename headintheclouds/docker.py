@@ -254,7 +254,7 @@ def run_container(image, name=None, command=None, environment=None,
 
     if environment:
         for key, value in environment.items():
-            if isinstance(value, dict):
+            if isinstance(value, dict) or isinstance(value, list):
                 encoded_value = json.dumps(value)
             else:
                 encoded_value = value
