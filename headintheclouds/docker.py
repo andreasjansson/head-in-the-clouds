@@ -254,7 +254,11 @@ def run_container(image, name=None, command=None, environment=None,
 
     if environment:
         for key, value in environment.items():
-            parts += ['-e', "%s='%s'" % (key, json.dumps(value))]
+            if isinstance(value, dict):
+                encoded_value = json.dumps(value)
+            else:
+                encoded_value = value
+            parts += ['-e', "%s='%s'" % (key, encoded_value)]
 
     if ports:
         for port, public_port, protocol in ports:
