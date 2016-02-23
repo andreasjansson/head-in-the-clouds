@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='headintheclouds',
-      version='0.7.0',
+      version='0.7.1',
       description='Provider-agnostic cloud provisioning and Docker orchestration',
       author='Andreas Jansson',
       author_email='andreas@jansson.me.uk',
