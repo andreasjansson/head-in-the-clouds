@@ -107,6 +107,15 @@ def upload(local_path, remote_path):
     '''
     put(local_path, remote_path)
 
+@cloudtask
+def rsync_up(local_path, remote_path):
+    local('rsync -avz -e "ssh -o StrictHostKeyChecking=no -i %s" "%s" "%s@%s:%s"' % (
+            env.key_filename, local_path, env.user, env.host, remote_path))
+
+@cloudtask
+def download(remote_path, local_path):
+    get(remote_path, local_path)    
+
 @task
 @runs_once
 def pricing(sort='cost'):
