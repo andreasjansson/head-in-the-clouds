@@ -49,12 +49,13 @@ def create(provider, count=1, name=None, **kwargs):
 
 @cloudtask
 @parallel
-def terminate():
+def terminate(immediately=False):
     '''
     Terminate server(s)
     '''
-    print 'Sleeping for ten seconds so you can change your mind if you want to!!!'
-    time.sleep(10)
+    if not immediately:
+        print 'Sleeping for ten seconds so you can change your mind if you want to!!!'
+        time.sleep(10)
     this_provider().terminate()
 
 @cloudtask
@@ -109,8 +110,13 @@ def upload(local_path, remote_path):
 
 @cloudtask
 def rsync_up(local_path, remote_path):
-    local('rsync -avz -e "ssh -o StrictHostKeyChecking=no -i %s" "%s" "%s@%s:%s"' % (
+    local('rsync -az -e "ssh -o StrictHostKeyChecking=no -i %s" "%s" "%s@%s:%s"' % (
             env.key_filename, local_path, env.user, env.host, remote_path))
+
+@cloudtask
+def rsync_down(remote_path, local_path):
+    local('rsync -az -e "ssh -o StrictHostKeyChecking=no -i %s" "%s@%s:%s" "%s"' % (
+            env.key_filename, env.user, env.host, remote_path, local_path))
 
 @cloudtask
 def download(remote_path, local_path):
@@ -118,13 +124,13 @@ def download(remote_path, local_path):
 
 @task
 @runs_once
-def pricing(sort='cost'):
+def pricing(sort='cost', **kwargs):
     '''
     Print pricing tables for all enabled providers
     '''
     for name, provider in env.providers.items():
         print name
-        provider.pricing(sort)
+        provider.pricing(sort, **kwargs)
         print
 
 @cloudtask
