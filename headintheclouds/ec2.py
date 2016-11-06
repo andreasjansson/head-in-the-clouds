@@ -13,8 +13,9 @@ import fabric.api as fab
 
 import headintheclouds
 from headintheclouds import util, cache
+from headintheclouds.tasks import cloudtask
 
-__all__ = ['spot_requests', 'cancel_spot_request']
+__all__ = ['spot_requests', 'cancel_spot_request', 'mount_volume']
 
 @task
 @runs_once
@@ -36,6 +37,27 @@ def cancel_spot_request(request_id):
         request_id (str): Request ID
     '''
     _ec2().cancel_spot_instance_requests([request_id])
+
+@cloudtask
+def mount_volume(volume, device='/dev/xvdf', mountpoint='/mnt/data', fstype='ext4'):
+    '''
+    Mount an EBS volume
+
+    Args:
+        volume (str): EBS volume ID
+        device (str): default /dev/xvdf
+        mountpoint (str): default /mnt/data
+        fstype (str): default ext4
+    '''
+    _ec2().attach_volume(volume, _host_node()['id'], device)
+    time.sleep(1)
+    sudo('mkdir -p "%s"' % mountpoint)
+    sudo('mount -t "%s" "%s" "%s"' % (fstype, device, mountpoint))
+
+@task
+@runs_once
+def create_volume(size, zone, snapshot_id=None):
+    _ec2().create_volume(size=size, zone=zone, snapshot=snapshot_id)
 
 create_server_defaults = {
     'size': 'm1.small',
@@ -67,14 +89,14 @@ def create_servers(count, names=None, size=None, placement=None,
     nodes = [n for n in all_nodes() if n['id'] in instance_ids]
     return nodes
 
-def pricing(sort='cost'):
+def pricing(sort='cost', zone='us-east-1a'):
     now = datetime.datetime.now()
     one_day_ago = now - datetime.timedelta(days=1)
     price_history = _ec2().get_spot_price_history(
         start_time=one_day_ago.isoformat(),
         end_time=now.isoformat(),
         product_description='Linux/UNIX',
-        availability_zone='us-east-1b',
+        availability_zone=zone,
     )
 
     data = {}
