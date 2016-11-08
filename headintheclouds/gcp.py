@@ -79,7 +79,7 @@ def create_servers(count, names, type, image, network,
         operations.append(operation)
 
     while True:
-        statuses = ['OPERATION %s' % get_operation_status(operation=operation)
+        statuses = ['%s' % get_operation_status(operation=operation)
                     for operation in operations]
         status_counts = Counter(statuses)
 
@@ -88,9 +88,9 @@ def create_servers(count, names, type, image, network,
 
         if count > 1:
             print 'Waiting for instances to start [%s]' % (
-                ', '.join(['%s: %d' % (s, c) for s, c in status_counts.most_common()]))
+                ', '.join(['OPERATION %s: %d' % (s, c) for s, c in status_counts.most_common()]))
         else:
-            print 'Waiting for instance to start [%s]' % (statuses[0])
+            print 'Waiting for instance to start [OPERATION %s]' % (statuses[0])
 
         time.sleep(5)
 
@@ -193,7 +193,7 @@ create_server_defaults = {
     'image': None,
     'type': None,
     'network': None,
-    'auto_delete_boot_disk': False,
+    'auto_delete_boot_disk': True,
     'on_host_maintenance': 'MIGRATE',
 }
 
