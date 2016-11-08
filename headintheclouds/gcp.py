@@ -31,7 +31,8 @@ def all_nodes():
     return nodes
 
 def create_servers(count, names, type, image, network,
-                   auto_delete_boot_disk, on_host_maintenance):
+                   auto_delete_boot_disk, on_host_maintenance,
+                   boot_disk_size_gb):
 
     if not network:
         network = 'https://www.googleapis.com/compute/v1/projects/%s/global/networks/default' % DEFAULT_PROJECT
@@ -57,7 +58,8 @@ def create_servers(count, names, type, image, network,
                     'autoDelete': auto_delete_boot_disk,
                     'initializeParams': {
                         'sourceImage': image,
-                    }
+                        'diskSizeGb': boot_disk_size_gb,
+                    },
                 },
             ],
             'networkInterfaces': [
@@ -130,7 +132,8 @@ def wait_for_instances_to_become_accessible(names):
         time.sleep(5)
 
 def validate_create_options(type, image, network,
-                            auto_delete_boot_disk, on_host_maintenance):
+                            auto_delete_boot_disk, on_host_maintenance,
+                            boot_disk_size_gb):
     if type is None:
         raise Exception('You need to specify a type')
 
@@ -195,6 +198,7 @@ create_server_defaults = {
     'network': None,
     'auto_delete_boot_disk': True,
     'on_host_maintenance': 'MIGRATE',
+    'boot_disk_size_gb': 20
 }
 
 settings = {
