@@ -186,7 +186,7 @@ def do_bootstrap(directory, use_envtpl):
                                                  die_on_missing_variable=True)
                         put(StringIO(compiled), remote_filename, use_sudo=use_sudo)
                 else:
-                    put(local_filename, remote_filename, use_sudo=use_sudo)
+                    put_with_checksum(local_filename, remote_filename, use_sudo=use_sudo)
 
     scripts = glob('%s/*.sh' % directory)
     remote_scripts_directory = '/tmp/bootstrap_scripts'
@@ -196,3 +196,10 @@ def do_bootstrap(directory, use_envtpl):
         remote_script = '%s/%s' % (remote_scripts_directory, filename)
         put('%s/%s' % (directory, filename), remote_script, use_sudo=True)
         run('source %s' % remote_script)
+
+def put_with_checksum(local_filename, remote_filename, use_sudo):
+    with settings(hide('everything'), warn_only=True):
+        local_md5 = local('md5sum "%s"' % local_filename, capture=True).split(' ')[0]
+        remote_md5 = run('md5sum "%s"' % remote_filename).split(' ')[0]
+    if local_md5 != remote_md5:
+        put(local_filename, remote_filename, use_sudo=use_sudo)
