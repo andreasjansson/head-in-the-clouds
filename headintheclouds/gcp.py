@@ -1,3 +1,5 @@
+import os
+from ConfigParser import ConfigParser
 import getpass
 import random
 import time
@@ -15,7 +17,7 @@ import headintheclouds
 from headintheclouds import util, cache
 from headintheclouds.tasks import cloudtask
 
-__all__ = ['create_image']
+__all__ = ['terminate_and_create_image']
 
 @cloudtask
 def terminate_and_create_image(name):
@@ -26,15 +28,20 @@ def terminate_and_create_image(name):
         name: The name of the image
     '''
     node = _host_node()
-    _gcp().instances().delete(project=DEFAULT_PROJECT, zone=DEFAULT_ZONE,
-                              instance=node['real_name']).execute()
-    time.sleep(1)
-    
+    operation = _gcp().instances().delete(project=DEFAULT_PROJECT, zone=DEFAULT_ZONE,
+                                          instance=node['real_name']).execute()
+    while True:
+        status = get_zone_operation_status(operation=operation)
+        if status == 'DONE':
+            break
+
+        print 'Terminating instance [OPERATION %s]' % status
+        time.sleep(5)
+
     body = {
         'name': name,
         'sourceDisk': node['source_disk'],
     }
-    print body
 
     operation = _gcp().images().insert(project=DEFAULT_PROJECT, body=body).execute()
     while True:
@@ -254,9 +261,16 @@ def _gcp():
         _gcp.client = discovery.build('compute', 'v1', credentials=credentials)
     return _gcp.client
 
-DEFAULT_PROJECT = util.env_var('GCP_DEFAULT_PROJECT')
-DEFAULT_ZONE = util.env_var('GCP_DEFAULT_ZONE')
-SSH_KEY_FILENAME = util.env_var('GCP_SSH_KEY_FILENAME')
+def read_gcloud_config():
+    filename = os.path.join(os.path.expanduser('~'), '.config', 'gcloud', 'configurations', 'config_default')
+    config = ConfigParser()
+    config.read(filename)
+    return config
+
+GCLOUD_CONFIG = read_gcloud_config()
+DEFAULT_PROJECT = GCLOUD_CONFIG.get('core', 'project')
+DEFAULT_ZONE = GCLOUD_CONFIG.get('compute', 'zone')
+SSH_KEY_FILENAME = util.env_var('GCP_SSH_KEY_FILENAME', os.path.join(os.path.expanduser('~'), '.ssh', 'google_compute_engine'))
 
 create_server_defaults = {
     'image': None,
