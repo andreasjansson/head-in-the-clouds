@@ -9,6 +9,8 @@ from fabric.api import *
 
 def print_table(table, columns=None, sort=None, default_sort=None):
     def is_number(x):
+        if x == '':
+            return True
         try:
             float(re.sub('[kMGTP]B$', '', x))
             return True

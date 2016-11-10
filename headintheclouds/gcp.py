@@ -15,7 +15,56 @@ import headintheclouds
 from headintheclouds import util, cache
 from headintheclouds.tasks import cloudtask
 
-__all__ = ['foo']
+__all__ = ['create_image']
+
+@cloudtask
+def terminate_and_create_image(name):
+    '''
+    Create an image from a terminated host (with auto_delete_boot_disk=False)
+
+    Args:
+        name: The name of the image
+    '''
+    node = _host_node()
+    _gcp().instances().delete(project=DEFAULT_PROJECT, zone=DEFAULT_ZONE,
+                              instance=node['real_name']).execute()
+    time.sleep(1)
+    
+    body = {
+        'name': name,
+        'sourceDisk': node['source_disk'],
+    }
+    print body
+
+    operation = _gcp().images().insert(project=DEFAULT_PROJECT, body=body).execute()
+    while True:
+        status = get_global_operation_status(operation=operation)
+        if status == 'DONE':
+            break
+
+        print 'Creating image [OPERATION %s]' % status
+        time.sleep(5)
+
+    print 'Created image: %s' % operation['targetLink']
+
+def pricing(sort):
+    types = _gcp().machineTypes().list(project=DEFAULT_PROJECT, zone=DEFAULT_ZONE).execute()['items']
+
+    def gpu_regex(m, g):
+        match = re.search(r'^[0-9]+ vCPUs?, [0-9]+ GB RAM, and (?P<gpu_cores>[0-9]+) dies? of (?P<gpu_type>.+) with (?P<gpu_ram>.+) of RAM', m['description'])
+        if match:
+            return match.group(g)
+        return ''
+
+    table = [{'name': m['name'],
+              'cpu_cores': m['guestCpus'],
+              'ram': '%.2fGB' % (m['memoryMb'] / 1024.0),
+              'gpu_type': gpu_regex(m, 'gpu_type'),
+              'gpu_cores': gpu_regex(m, 'gpu_cores'),
+              'gpu_ram': gpu_regex(m, 'gpu_ram')}
+             for m in types]
+            
+    util.print_table(table, ['name', 'cpu_cores', 'ram', 'gpu_type', 'gpu_cores', 'gpu_ram'], sort='cpu_cores')
 
 def nodes():
     util.print_table(cache.recache(all_nodes),
@@ -33,9 +82,6 @@ def all_nodes():
 def create_servers(count, names, type, image, network,
                    auto_delete_boot_disk, on_host_maintenance,
                    boot_disk_size_gb):
-
-    if not network:
-        network = 'https://www.googleapis.com/compute/v1/projects/%s/global/networks/default' % DEFAULT_PROJECT
 
     count = int(count)
     assert count == len(names)
@@ -81,7 +127,7 @@ def create_servers(count, names, type, image, network,
         operations.append(operation)
 
     while True:
-        statuses = ['%s' % get_operation_status(operation=operation)
+        statuses = ['%s' % get_zone_operation_status(operation=operation)
                     for operation in operations]
         status_counts = Counter(statuses)
 
@@ -105,14 +151,13 @@ def create_servers(count, names, type, image, network,
     nodes = [n for n in all_nodes() if n['name'] in names]
     return nodes
 
-@task
-@runs_once
-def foo():
-    gcloud_compute('config-ssh', name_with_prefix('test5'))
-
-def get_operation_status(operation):
+def get_zone_operation_status(operation):
     return _gcp().zoneOperations().get(
         project=DEFAULT_PROJECT, zone=DEFAULT_ZONE, operation=operation['name']).execute()['status']
+
+def get_global_operation_status(operation):
+    return _gcp().globalOperations().get(
+        project=DEFAULT_PROJECT, operation=operation['name']).execute()['status']
 
 def wait_for_instances_to_become_accessible(names):
     while True:
@@ -152,23 +197,31 @@ def terminate():
 
 def instance_to_node(instance):
     node = {}
+    boot_disk = instance_get_boot_disk(instance)
     node['id'] = instance['id']
     node['name'] = re.sub('^%s' % env.name_prefix, '', instance['name'])
     node['real_name'] = instance['name']
     node['type'] = instance_get_type(instance)
-    node['image'] = instance_get_image(instance)
+    node['image'] = boot_disk['sourceImage'].replace('https://www.googleapis.com/compute/v1/', '')
     node['status'] = instance['status']
     node['running'] = instance['status'] == 'RUNNING'
     created = dateutil.parser.parse(instance['creationTimestamp'])
     node['created'] = created.astimezone(dateutil.tz.tzlocal())
     node['ip'] = instance['networkInterfaces'][0]['accessConfigs'][0].get('natIP', None)
     node['internal_ip'] = instance['networkInterfaces'][0]['networkIP']
+    node['network'] = instance['networkInterfaces'][0]['network']
+    node['on_host_maintenance'] = instance['scheduling']['onHostMaintenance']
+    node['auto_delete_boot_disk'] = boot_disk['autoDelete']
+    node['boot_disk_size_gb'] = float(boot_disk['sizeGb'])
+    node['source_disk'] = boot_disk['source']
     return node
 
-def instance_get_image(instance):
-    disk_name = instance['disks'][0]['source'].split('/')[-1]
+def instance_get_boot_disk(instance):
+    boot_disk = [d for d in instance['disks'] if d['boot']][0]
+    disk_name = boot_disk['source'].split('/')[-1]
     disk = _gcp().disks().get(project=DEFAULT_PROJECT, zone=DEFAULT_ZONE, disk=disk_name).execute()
-    return disk['sourceImage']
+    boot_disk.update(disk)
+    return boot_disk
 
 def instance_get_type(instance):
     return instance['machineType'].split('/')[-1]
@@ -178,6 +231,19 @@ def name_with_prefix(name):
 
 def random_name():
     return 'unnamed-%d' % random.randint(0, 2 ** 31)
+
+def equivalent_create_options(options1, options2):
+    options1 = options1.copy()
+    options2 = options2.copy()
+
+    return (
+        options1['image'] == options2['image']
+        and options1['type'] == options2['type']
+        and options1['network'] == options2['network']
+        and options1['auto_delete_boot_disk'] == options2['auto_delete_boot_disk']
+        and options1['on_host_maintenance'] == options2['on_host_maintenance']
+        and options1['boot_disk_size_gb'] == options2['boot_disk_size_gb']
+    )
 
 def _host_node():
     return [x for x in all_nodes() if x['ip'] == env.host][0]
@@ -195,7 +261,7 @@ SSH_KEY_FILENAME = util.env_var('GCP_SSH_KEY_FILENAME')
 create_server_defaults = {
     'image': None,
     'type': None,
-    'network': None,
+    'network': 'https://www.googleapis.com/compute/v1/projects/%s/global/networks/default' % DEFAULT_PROJECT,
     'auto_delete_boot_disk': True,
     'on_host_maintenance': 'MIGRATE',
     'boot_disk_size_gb': 20
