@@ -70,7 +70,7 @@ def pricing(sort):
               'gpu_cores': gpu_regex(m, 'gpu_cores'),
               'gpu_ram': gpu_regex(m, 'gpu_ram')}
              for m in types]
-            
+
     util.print_table(table, ['name', 'cpu_cores', 'ram', 'gpu_type', 'gpu_cores', 'gpu_ram'], sort='cpu_cores')
 
 def nodes():
@@ -79,7 +79,7 @@ def nodes():
 
 @cache.cached
 def all_nodes():
-    instances = _gcp().instances().list(project=DEFAULT_PROJECT, zone=DEFAULT_ZONE).execute()['items']
+    instances = _gcp().instances().list(project=DEFAULT_PROJECT, zone=DEFAULT_ZONE).execute().get('items', [])
     nodes = [instance_to_node(instance)
              for instance in instances
              if instance['name'].startswith(env.name_prefix)
