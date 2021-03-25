@@ -13,7 +13,7 @@ setup(name='headintheclouds',
       url='https://github.com/andreasjansson/head-in-the-clouds',
       install_requires=[
           'Fabric>=1.6.1',
-          'PyYAML==3.12',
+          'PyYAML==5.4',
           'boto==2.9.8',
           'python-dateutil==2.1',
           'simplejson',
